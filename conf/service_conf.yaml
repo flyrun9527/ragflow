@@ -5,7 +5,7 @@ mysql:
   name: 'rag_flow'
   user: 'root'
   password: 'infini_rag_flow'
-  host: 'localhost'
+  host: '192.168.130.24'
   port: 5455
   max_connections: 900
   stale_timeout: 300
@@ -13,22 +13,22 @@ mysql:
 minio:
   user: 'rag_flow'
   password: 'infini_rag_flow'
-  host: 'localhost:9000'
+  host: '192.168.130.24:9000'
 es:
-  hosts: 'http://localhost:1200'
+  hosts: 'http://192.168.130.24:1200'
   username: 'elastic'
   password: 'infini_rag_flow'
 os:
-  hosts: 'http://localhost:1201'
+  hosts: 'http://192.168.130.24:1201'
   username: 'admin'
   password: 'infini_rag_flow_OS_01'
 infinity:
-  uri: 'localhost:23817'
+  uri: '192.168.130.24:23817'
   db_name: 'default_db'
 redis:
   db: 1
   password: 'infini_rag_flow'
-  host: 'localhost:6379'
+  host: '192.168.130.24:26379'
 # postgres:
 #   name: 'rag_flow'
 #   user: 'rag_flow'
@@ -62,7 +62,7 @@ redis:
 # opendal:
 #   scheme: 'mysql'  # Storage type, such as s3, oss, azure, etc.
 #   config:
-#     oss_table: 'your_table_name'
+#     oss_table: 'opendal_storage'
 # user_default_llm:
 #   factory: 'Tongyi-Qianwen'
 #   api_key: 'sk-xxxxxxxxxxxxx'

@@ -1,4 +1,4 @@
-import { LlmModelType } from '@/constants/knowledge';
+import { LayoutRecognizeType, LlmModelType } from '@/constants/knowledge';
 import { useTranslate } from '@/hooks/common-hooks';
 import { useSelectLlmOptionsByModelType } from '@/hooks/llm-hooks';
 import { camelCase } from 'lodash';
@@ -13,11 +13,6 @@ import {
 } from './ui/form';
 import { RAGFlowSelect } from './ui/select';
 
-export const enum DocumentType {
-  DeepDOC = 'DeepDOC',
-  PlainText = 'Plain Text',
-}
-
 export function LayoutRecognizeFormField() {
   const form = useFormContext();
 
@@ -25,8 +20,9 @@ export function LayoutRecognizeFormField() {
   const allOptions = useSelectLlmOptionsByModelType();
 
   const options = useMemo(() => {
-    const list = [DocumentType.DeepDOC, DocumentType.PlainText].map((x) => ({
-      label: x === DocumentType.PlainText ? t(camelCase(x)) : 'DeepDoc',
+    // 使用 LayoutRecognizeType 枚举值
+    const list = Object.values(LayoutRecognizeType).map((x) => ({
+      label: x === LayoutRecognizeType.PlainText ? t(camelCase(x)) : x,
       value: x,
     }));
 
@@ -60,7 +56,7 @@ export function LayoutRecognizeFormField() {
           form.setValue(
             'parser_config.layout_recognize',
             form.formState.defaultValues?.parser_config?.layout_recognize ??
-              'DeepDOC',
+              LayoutRecognizeType.DeepDOC,
           );
         }
         return (

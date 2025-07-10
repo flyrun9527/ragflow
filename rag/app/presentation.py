@@ -126,13 +126,20 @@ def chunk(filename, binary=None, from_page=0, to_page=100000,
             res.append(d)
         return res
     elif re.search(r"\.pdf$", filename, re.IGNORECASE):
-        layout_recognizer = kwargs.get("layout_recognize", "DeepDOC")
+        layout_recognizer = kwargs.get("parser_config", {}).get("layout_recognize", "DeepDOC")
+
         if layout_recognizer == "DeepDOC":
             pdf_parser = Pdf()
             sections = pdf_parser(filename, binary, from_page=from_page, to_page=to_page, callback=callback)
         elif layout_recognizer == "Plain Text":
             pdf_parser = PlainParser()
             sections, _ = pdf_parser(filename, binary, from_page=from_page, to_page=to_page, callback=callback)
+        elif layout_recognizer == "MinerU":
+            # 使用 MinerU 解析器
+            from minerU.parser import MinerUParser
+            pdf_parser = MinerUParser()
+            sections, _ = pdf_parser(filename, binary, from_page=from_page, to_page=to_page, callback=callback,
+                                   kb_id=kwargs.get('kb_id'), doc_id=kwargs.get('doc_id'))
         else:
             vision_model = LLMBundle(kwargs["tenant_id"], LLMType.IMAGE2TEXT, llm_name=layout_recognizer, lang=lang)
             pdf_parser = VisionParser(vision_model=vision_model, **kwargs)

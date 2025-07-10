@@ -189,8 +189,13 @@ def chunk(filename, binary=None, from_page=0, to_page=100000,
         pdf_parser = Pdf()
         if kwargs.get("layout_recognize", "DeepDOC") == "Plain Text":
             pdf_parser = PlainParser()
+        elif kwargs.get("layout_recognize", "DeepDOC") == "MinerU":
+            # 使用 MinerU 解析器
+            from minerU.parser import MinerUParser
+            pdf_parser = MinerUParser()
         sections, tbls = pdf_parser(filename if not binary else binary,
-                                    from_page=from_page, to_page=to_page, callback=callback)
+                                    from_page=from_page, to_page=to_page, callback=callback,
+                                    kb_id=kwargs.get('kb_id'), doc_id=kwargs.get('doc_id'))
         if sections and len(sections[0]) < 3:
             sections = [(t, lvl, [[0] * 5]) for t, lvl in sections]
         # set pivot using the most frequent type of title,

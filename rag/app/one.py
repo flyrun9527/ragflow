@@ -87,8 +87,13 @@ def chunk(filename, binary=None, from_page=0, to_page=100000,
         pdf_parser = Pdf()
         if kwargs.get("layout_recognize", "DeepDOC") == "Plain Text":
             pdf_parser = PlainParser()
+        elif kwargs.get("layout_recognize", "DeepDOC") == "MinerU":
+            # 使用 MinerU 解析器
+            from minerU.parser import MinerUParser
+            pdf_parser = MinerUParser()
         sections, _ = pdf_parser(
-            filename if not binary else binary, to_page=to_page, callback=callback)
+            filename if not binary else binary, to_page=to_page, callback=callback,
+            kb_id=kwargs.get('kb_id'), doc_id=kwargs.get('doc_id'))
         sections = [s for s, _ in sections if s]
 
     elif re.search(r"\.xlsx?$", filename, re.IGNORECASE):

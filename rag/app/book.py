@@ -91,7 +91,26 @@ def chunk(filename, binary=None, from_page=0, to_page=100000,
         pdf_parser = Pdf()
         if kwargs.get("layout_recognize", "DeepDOC") == "Plain Text":
             pdf_parser = PlainParser()
-        sections, tbls = pdf_parser(filename if not binary else binary,
+        elif kwargs.get("layout_recognize", "DeepDOC") == "MinerU":
+            # 使用 MinerU 解析器
+            try:
+                from minerU.parser import MinerUParser
+                pdf_parser = MinerUParser()
+                logging.info("成功导入并初始化 MinerU 解析器")
+                logging.info(f"使用 MinerU 解析器处理文件: {filename}")
+                try:
+                    sections, tbls = pdf_parser(filename if not binary else binary, binary=binary,
+                                              from_page=from_page, to_page=to_page, callback=callback,
+                                              kb_id=kwargs.get('kb_id'), doc_id=kwargs.get('doc_id'))
+                    logging.info(f"MinerU 解析完成")
+                except Exception as e:
+                    logging.error(f"调用 MinerU 解析器失败: {str(e)}", exc_info=True)
+                    raise Exception(f"MinerU 服务异常: {str(e)}")
+            except ImportError as e:
+                logging.error(f"导入 MinerU 解析器失败: {str(e)}", exc_info=True)
+                raise Exception(f"MinerU 解析器导入失败: {str(e)}")
+        else:
+            sections, tbls = pdf_parser(filename if not binary else binary,
                                     from_page=from_page, to_page=to_page, callback=callback)
 
     elif re.search(r"\.txt$", filename, re.IGNORECASE):

@@ -165,9 +165,33 @@ def chunk(filename, binary=None, from_page=0, to_page=100000,
         pdf_parser = Pdf()
         if kwargs.get("layout_recognize", "DeepDOC") == "Plain Text":
             pdf_parser = PlainParser()
-        for txt, poss in pdf_parser(filename if not binary else binary,
+        elif kwargs.get("layout_recognize", "DeepDOC") == "MinerU":
+            # 使用 MinerU 解析器
+            try:
+                from minerU.parser import MinerUParser
+                pdf_parser = MinerUParser()
+                logging.info("成功导入并初始化 MinerU 解析器")
+                logging.info(f"使用 MinerU 解析器处理文件: {filename}")
+                try:
+                    sections_and_tables = pdf_parser(filename if not binary else binary, binary=binary,
+                                                   from_page=from_page, to_page=to_page, callback=callback,
+                                                   kb_id=kwargs.get('kb_id'), doc_id=kwargs.get('doc_id'))
+                    logging.info(f"MinerU 解析完成")
+                    
+                    # 使用已获取的结果
+                    for section in sections_and_tables[0]:
+                        sections.append(section.get('text', ''))
+                except Exception as e:
+                    logging.error(f"调用 MinerU 解析器失败: {str(e)}", exc_info=True)
+                    raise Exception(f"MinerU 服务异常: {str(e)}")
+            except ImportError as e:
+                logging.error(f"导入 MinerU 解析器失败: {str(e)}", exc_info=True)
+                raise Exception(f"MinerU 解析器导入失败: {str(e)}")
+        else:
+            # 对于其他解析器，使用原来的调用方式
+            for txt, poss in pdf_parser(filename if not binary else binary,
                                     from_page=from_page, to_page=to_page, callback=callback)[0]:
-            sections.append(txt + poss)
+                sections.append(txt + poss)
 
     elif re.search(r"\.txt$", filename, re.IGNORECASE):
         callback(0.1, "Start to parse.")

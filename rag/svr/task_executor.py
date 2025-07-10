@@ -46,7 +46,7 @@ import faulthandler
 import numpy as np
 from peewee import DoesNotExist
 
-from api.db import LLMType, ParserType
+from api.db import LLMType, ParserType, TaskStatus
 from api.db.services.document_service import DocumentService
 from api.db.services.llm_service import LLMBundle
 from api.db.services.task_service import TaskService
@@ -259,7 +259,7 @@ async def build_chunks(task, progress_callback):
         async with chunk_limiter:
             cks = await trio.to_thread.run_sync(lambda: chunker.chunk(task["name"], binary=binary, from_page=task["from_page"],
                                 to_page=task["to_page"], lang=task["language"], callback=progress_callback,
-                                kb_id=task["kb_id"], parser_config=task["parser_config"], tenant_id=task["tenant_id"]))
+                                kb_id=task["kb_id"], doc_id=task["doc_id"], parser_config=task["parser_config"], tenant_id=task["tenant_id"]))
         logging.info("Chunking({}) {}/{} done".format(timer() - st, task["location"], task["name"]))
     except TaskCanceledException:
         raise
@@ -642,7 +642,7 @@ async def handle_task():
         await do_handle_task(task)
         DONE_TASKS += 1
         CURRENT_TASKS.pop(task["id"], None)
-        logging.info(f"handle_task done for task {json.dumps(task)}")
+        # logging.info(f"handle_task done for task {json.dumps(task)}")
     except Exception as e:
         FAILED_TASKS += 1
         CURRENT_TASKS.pop(task["id"], None)
