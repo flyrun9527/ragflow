@@ -74,6 +74,7 @@ const hidePagesChunkMethods = [
   DocumentParserType.Resume,
   DocumentParserType.One,
   DocumentParserType.KnowledgeGraph,
+  DocumentParserType.Hierarchical,
 ];
 
 export function ChunkMethodDialog({
@@ -171,7 +172,8 @@ export function ChunkMethodDialog({
 
   const showMaxTokenNumber =
     selectedTag === DocumentParserType.Naive ||
-    selectedTag === DocumentParserType.KnowledgeGraph;
+    selectedTag === DocumentParserType.KnowledgeGraph ||
+    selectedTag === DocumentParserType.Hierarchical;
 
   const showEntityTypes = selectedTag === DocumentParserType.KnowledgeGraph;
 
@@ -291,7 +293,9 @@ export function ChunkMethodDialog({
                     max={
                       selectedTag === DocumentParserType.KnowledgeGraph
                         ? 8192 * 2
-                        : 2048
+                        : selectedTag === DocumentParserType.Hierarchical
+                          ? 800
+                          : 2048
                     }
                   ></MaxTokenNumberFormField>
                   <DelimiterFormField></DelimiterFormField>

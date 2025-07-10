@@ -1,6 +1,7 @@
 import { Toaster as Sonner } from '@/components/ui/sonner';
 import { Toaster } from '@/components/ui/toaster';
 import i18n from '@/locales/config';
+import { StagewiseToolbar } from '@stagewise/toolbar-react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { App, ConfigProvider, ConfigProviderProps, theme } from 'antd';
@@ -85,6 +86,9 @@ function Root({ children }: React.PropsWithChildren) {
         <Toaster />
       </ConfigProvider>
       <ReactQueryDevtools buttonPosition={'top-left'} />
+      {process.env.NODE_ENV === 'development' && (
+        <StagewiseToolbar config={{ plugins: [] }} />
+      )}
     </>
   );
 }

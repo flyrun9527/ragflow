@@ -360,6 +360,7 @@ def get_parser_config(chunk_method, parser_config):
         "presentation": {"raptor": {"use_raptor": False}},
         "one": None,
         "knowledge_graph": {"chunk_token_num": 8192, "delimiter": r"\n", "entity_types": ["organization", "person", "location", "event", "time"]},
+        "hierarchical": {"chunk_token_num": 400, "max_token_num": 800, "min_token_num": 50, "enable_context": True, "raptor": {"use_raptor": False}},
         "email": None,
         "picture": None,
     }

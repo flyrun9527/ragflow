@@ -10,6 +10,7 @@ import { useParams } from 'umi';
 import { AudioConfiguration } from './configuration/audio';
 import { BookConfiguration } from './configuration/book';
 import { EmailConfiguration } from './configuration/email';
+import { HierarchicalConfiguration } from './configuration/hierarchical';
 import { KnowledgeGraphConfiguration } from './configuration/knowledge-graph';
 import { LawsConfiguration } from './configuration/laws';
 import { ManualConfiguration } from './configuration/manual';
@@ -39,6 +40,7 @@ const ConfigurationComponentMap = {
   [DocumentParserType.Email]: EmailConfiguration,
   [DocumentParserType.Tag]: TagConfiguration,
   [DocumentParserType.KnowledgeGraph]: KnowledgeGraphConfiguration,
+  [DocumentParserType.Hierarchical]: HierarchicalConfiguration,
 };
 
 function EmptyComponent() {

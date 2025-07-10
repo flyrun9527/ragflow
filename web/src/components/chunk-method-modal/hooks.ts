@@ -18,6 +18,7 @@ const ParserListMap = new Map([
       DocumentParserType.One,
       DocumentParserType.Qa,
       DocumentParserType.KnowledgeGraph,
+      DocumentParserType.Hierarchical,
     ],
   ],
   [
@@ -80,6 +81,7 @@ const ParserListMap = new Map([
       DocumentParserType.Naive,
       DocumentParserType.Qa,
       DocumentParserType.KnowledgeGraph,
+      DocumentParserType.Hierarchical,
     ],
   ],
   [['json'], [DocumentParserType.Naive, DocumentParserType.KnowledgeGraph]],

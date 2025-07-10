@@ -335,6 +335,19 @@ export default {
 <p>在标签列中，标签之间使用英文逗号分隔。</p>
 <i>不符合上述规则的文本行将被忽略。</i>
 `,
+      hierarchical: `<p>仅支持<b>PDF解析器为MinerU情况，其他解析器不支持，MinerU解析器支持的文件格式为<b>PDF</b>、<b>PPTX</b>、<b>DOCX</b>、<b>TXT</b>、<b>MD</b>、<b>EML</b>、<b>JSON</b>、<b>IMAGE</b>、<b>EXCEL</b>、<b>XLSX</b>、<b>CSV/TXT</b>等MinerU解析器支持的文件格式。</b>。</p>
+<p>此方法使用标题层级（H1、H2、H3）作为主要分块边界，创建保持文档结构的较大分块。</p>
+<p>特性：</p>
+<ul>
+<li><b>标题驱动分块：</b>使用H1、H2、H3作为主要分块边界</li>
+<li><b>动态大小控制：</b>目标300-600个token，最大800个token，最小50个token</li>
+<li><b>智能分割：</b>在段落边界进一步分割过大的分块</li>
+<li><b>智能合并：</b>将过小的分块与相邻分块合并</li>
+<li><b>内容保护：</b>保持表格、代码块和公式的完整性</li>
+<li><b>上下文增强：</b>为小分块添加上下文信息</li>
+</ul>
+<p>此方法专门用于处理 MinerU 提取的 Markdown 文件，对这些文件进行基于标题层级的切块，保持文档的结构和上下文。</p>
+`,
       useRaptor: '使用召回增强 RAPTOR 策略',
       useRaptorTip:
         '为多跳问答任务启用 RAPTOR，详情请见 : https://ragflow.io/docs/dev/enable_raptor。',

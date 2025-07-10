@@ -64,6 +64,12 @@ export enum DocumentType {
   Visual = 'visual',
 }
 
+export enum LayoutRecognizeType {
+  DeepDOC = 'DeepDOC',
+  PlainText = 'Plain Text',
+  MinerU = 'MinerU',
+}
+
 export enum DocumentParserType {
   Naive = 'naive',
   Qa = 'qa',
@@ -80,4 +86,5 @@ export enum DocumentParserType {
   Email = 'email',
   Tag = 'tag',
   KnowledgeGraph = 'knowledge_graph',
+  Hierarchical = 'hierarchical',
 }

@@ -326,6 +326,19 @@ export default {
 <p>In a Tag column, <b>comma</b> is used to separate tags.</p>
 <i>Lines of texts that fail to follow the above rules will be ignored.</i>
 `,
+      markdownHierarchical: `<p>Only <b>MD</b> and <b>MDX</b> files are supported.</p>
+<p>This method uses heading hierarchy (H1, H2, H3) as the primary chunking boundaries, creating larger chunks that preserve document structure.</p>
+<p>Features:</p>
+<ul>
+<li><b>Heading-driven chunking:</b> Uses H1, H2, H3 as main chunk boundaries</li>
+<li><b>Dynamic size control:</b> Target 300-600 tokens, max 800 tokens, min 50 tokens</li>
+<li><b>Smart splitting:</b> Further splits oversized chunks at paragraph boundaries</li>
+<li><b>Smart merging:</b> Merges undersized chunks with adjacent ones</li>
+<li><b>Content protection:</b> Preserves integrity of tables, code blocks, and formulas</li>
+<li><b>Context enhancement:</b> Adds contextual information for small chunks</li>
+</ul>
+<p>This method is ideal for structured Markdown documents where maintaining heading hierarchy is important.</p>
+`,
       useRaptor: 'Use RAPTOR to enhance retrieval',
       useRaptorTip:
         'Enable RAPTOR for multi-hop question-answering tasks. See https://ragflow.io/docs/dev/enable_raptor for details.',

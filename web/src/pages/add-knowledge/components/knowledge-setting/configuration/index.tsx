@@ -12,6 +12,7 @@ import {
 import { AudioConfiguration } from './audio';
 import { BookConfiguration } from './book';
 import { EmailConfiguration } from './email';
+import { HierarchicalConfiguration } from './hierarchical';
 import { KnowledgeGraphConfiguration } from './knowledge-graph';
 import { LawsConfiguration } from './laws';
 import { ManualConfiguration } from './manual';
@@ -43,6 +44,7 @@ const ConfigurationComponentMap = {
   [DocumentParserType.Email]: EmailConfiguration,
   [DocumentParserType.Tag]: TagConfiguration,
   [DocumentParserType.KnowledgeGraph]: KnowledgeGraphConfiguration,
+  [DocumentParserType.Hierarchical]: HierarchicalConfiguration,
 };
 
 function EmptyComponent() {

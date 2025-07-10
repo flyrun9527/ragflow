@@ -16,6 +16,9 @@
       "prettier --write --ignore-unknown"
     ]
   },
+  "overrides": {
+    "@radix-ui/react-dismissable-layer": "1.1.4"
+  },
   "dependencies": {
     "@ant-design/icons": "^5.2.6",
     "@ant-design/pro-components": "^2.6.46",
@@ -111,6 +114,8 @@
   "devDependencies": {
     "@react-dev-inspector/umi4-plugin": "^2.0.1",
     "@redux-devtools/extension": "^3.3.0",
+    "@stagewise-plugins/react": "^0.5.0",
+    "@stagewise/toolbar-react": "^0.5.0",
     "@testing-library/jest-dom": "^6.4.5",
     "@testing-library/react": "^15.0.7",
     "@types/dompurify": "^3.0.5",
@@ -145,8 +150,5 @@
   },
   "engines": {
     "node": ">=18.20.4"
-  },
-  "overrides": {
-    "@radix-ui/react-dismissable-layer": "1.1.4"
   }
 }
