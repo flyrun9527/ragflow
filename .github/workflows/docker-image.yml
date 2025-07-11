@@ -8,7 +8,11 @@ on:
         description: 'Branch name to build and deploy'
         required: true
         default: 'main'
-
+      image_tag:
+        type: string
+        description: 'Custom Docker image tag (e.g. v0.19.1-hierarchical)'
+        default: 'latest'
+        required: false
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
@@ -24,8 +28,10 @@ jobs:
       
       - name: Build Docker image
         run: |
-          docker build --platform linux/amd64 --build-arg LIGHTEN=1 -f Dockerfile -t registry.cn-beijing.aliyuncs.com/flyrun/ragflow:knowledge_0.19.1_hierarchical_$(date +%s) .
+          TAG="${{ github.event.inputs.image_tag }}"        
+          docker build --platform linux/amd64 --build-arg LIGHTEN=1 -f Dockerfile -t registry.cn-beijing.aliyuncs.com/flyrun/ragflow:knowledge_0.19.1_hierarchical_$TAG .
 
       - name: Push Docker image
         run: |
-          docker push registry.cn-beijing.aliyuncs.com/flyrun/ragflow:knowledge_0.19.1_hierarchical_$(date +%s)
+          TAG="${{ github.event.inputs.image_tag }}"           
+          docker push registry.cn-beijing.aliyuncs.com/flyrun/ragflow:knowledge_0.19.1_hierarchical_$TAG
