@@ -17,6 +17,7 @@
 import os
 import logging
 import time
+import re
 from pathlib import Path
 import tempfile
 import json
@@ -93,7 +94,7 @@ class MinerUAPIClient:
                 'return_middle_json': True,  
                 'return_model_output': False,  
                 'return_content_list': False,  
-                'return_images': False,   
+                'return_images': True,   
                 'start_page_id': 0,       
                 'end_page_id': 99999     
             }
@@ -171,12 +172,261 @@ class MinerUParser:
         # 初始化 API 客户端
         self.client = MinerUAPIClient(self.api_url, self.timeout)
         
-    def parse(self, file_path: str) -> List[Dict[str, Any]]:
+    def _save_images_from_result(self, result, images_dir):
+        """从 MinerU API 结果中保存图片到临时目录
+        
+        参数:
+            result: MinerU API 返回的结果
+            images_dir: 保存图片的临时目录路径
+            
+        返回:
+            保存的图片数量
+        """
+        saved_count = 0
+        
+        if not result or not isinstance(result, dict) or 'images' not in result or not result['images']:
+            logger.warning(f"API结果中没有images字段或为空")
+            return 0
+            
+        os.makedirs(images_dir, exist_ok=True)
+        logger.info(f"创建/确认临时图片目录: {images_dir}")
+        
+        for image_name, image_data in result['images'].items():
+            try:
+                if not image_data:
+                    logger.warning(f"图片 {image_name} 的数据为空")
+                    continue
+                    
+                # 提取 base64 数据（去掉 data:image/jpeg;base64, 前缀）
+                base64_data = image_data
+                if isinstance(image_data, str):
+                    if image_data.startswith('data:image/'):
+                        base64_data = image_data.split(',', 1)[1]
+                    else:
+                        base64_data = image_data
+                    
+                # 解码并保存图片
+                try:
+                    image_bytes = base64.b64decode(base64_data)
+                    if not image_bytes:
+                        logger.warning(f"图片 {image_name} 解码后数据为空")
+                        continue
+                        
+                    image_path = os.path.join(images_dir, image_name)
+                    
+                    with open(image_path, 'wb') as f:
+                        f.write(image_bytes)
+                        
+                    saved_count += 1
+                    logger.info(f"保存图片: {image_path}")
+                except Exception as decode_err:
+                    logger.error(f"解码或保存图片 {image_name} 数据失败: {decode_err}")
+                
+            except Exception as e:
+                logger.error(f"处理图片 {image_name} 失败: {e}")
+        
+        logger.info(f"总共保存了 {saved_count} 张图片到 {images_dir}")
+        return saved_count
+    
+    def _upload_images_to_minio(self, kb_id, images_dir):
+        """将图片上传到 MinIO 对象存储
+        
+        参数:
+            kb_id: 知识库ID，用作 MinIO bucket 名称
+            images_dir: 图片所在的本地临时目录
+            
+        返回:
+            上传成功的图片数量
+        """
+        try:
+            from rag.utils.storage_factory import STORAGE_IMPL
+            
+            if not os.path.exists(images_dir) or not os.path.isdir(images_dir):
+                logger.error(f"图片目录不存在或不是目录: {images_dir}")
+                return 0
+                
+            # 检查目录中是否有图片文件
+            image_files = [f for f in os.listdir(images_dir) if os.path.isfile(os.path.join(images_dir, f)) 
+                           and os.path.splitext(f.lower())[1] in ('.png', '.jpg', '.jpeg', '.gif', '.webp')]
+            
+            if not image_files:
+                logger.warning(f"图片目录 {images_dir} 中没有图片文件")
+                return 0
+            
+            # 不再检查桶是否存在，直接上传 - STORAGE_IMPL会在put时创建桶
+            success_count = 0
+            total_count = len(image_files)
+            
+            # 上传目录中的所有图片
+            for img_file in image_files:
+                img_path = os.path.join(images_dir, img_file)
+                
+                try:
+                    # 读取图片文件并完整加载到内存中
+                    with open(img_path, 'rb') as f:
+                        img_data = f.read()
+                    
+                    # 确保数据已读取
+                    if img_data is None or len(img_data) == 0:
+                        logger.error(f"无法读取图片数据: {img_file}")
+                        continue
+                    
+                    # 确定内容类型
+                    ext = os.path.splitext(img_file)[1].lower()
+                    content_type = f"image/{ext[1:]}"
+                    if content_type == "image/jpg":
+                        content_type = "image/jpeg"
+                    
+                    # 上传到 MinIO - 使用项目的API
+                    # 注意：项目中RAGFlowMinio.put会自己创建BytesIO，所以这里直接传递字节数据
+                    try:
+                        STORAGE_IMPL.put(kb_id, img_file, img_data)
+                        success_count += 1
+                        logger.info(f"成功上传图片到 MinIO: {img_file}")
+                    except Exception as put_err:
+                        logger.error(f"上传图片到MinIO失败: {put_err}")
+                        
+                except Exception as e:
+                    logger.error(f"读取图片 {img_file} 失败: {e}")
+                    
+            logger.info(f"上传到 MinIO 完成: 成功 {success_count}/{total_count}")
+            return success_count
+            
+        except ImportError as ie:
+            logger.error(f"无法导入STORAGE_IMPL: {ie}")
+            return 0
+        except Exception as e:
+            logger.error(f"上传图片到MinIO时出错: {e}")
+            return 0
+    
+    def _get_image_url(self, kb_id, image_name):
+        """生成MinIO图片访问URL
+        
+        参数:
+            kb_id: 知识库ID
+            image_name: 图片名称
+            
+        返回:
+            图片访问URL
+        """
+        try:
+            # 方法2: 尝试使用STORAGE_IMPL的get_url或get_presigned_url
+            from rag.utils.storage_factory import STORAGE_IMPL
+            try:
+                # 尝试get_url
+                if hasattr(STORAGE_IMPL, 'get_url'):
+                    url = STORAGE_IMPL.get_url(kb_id, image_name)
+                    logger.debug(f"方法2获取URL成功(get_url): {url}")
+                    return url
+                # 尝试get_presigned_url
+                elif hasattr(STORAGE_IMPL, 'get_presigned_url'):
+                    try:
+                        url = STORAGE_IMPL.get_presigned_url(kb_id, image_name)
+                        logger.debug(f"方法2获取URL成功(get_presigned_url): {url}")
+                        return url
+                    except Exception as presigned_err:
+                        logger.error(f"获取预签名URL失败，尝试其他方法: {presigned_err}")
+                        # 继续尝试其他方法
+            except Exception as e:
+                logger.error(f"方法2获取URL失败: {e}")
+            
+            # 方法3: 从配置文件构建URL
+            try:
+                # 导入配置
+                from rag import settings
+                minio_host = settings.MINIO.get("host", "localhost:9000")
+                secure = settings.MINIO.get("secure", False)
+                protocol = "https" if secure else "http"
+                url = f"{protocol}://{minio_host}/{kb_id}/{image_name}"
+                logger.debug(f"方法3从配置构建URL: {url}")
+                return url
+            except Exception as e:
+                logger.error(f"方法3构建URL失败: {e}")
+            
+            # 方法4: 硬编码方式构建URL
+            try:
+                import os
+                minio_host = os.environ.get("MINIO_HOST", "localhost:9000")
+                secure = os.environ.get("MINIO_SECURE", "false").lower() == "true"
+                protocol = "https" if secure else "http"
+                url = f"{protocol}://{minio_host}/{kb_id}/{image_name}"
+                logger.debug(f"方法4从环境变量构建URL: {url}")
+                return url
+            except Exception as e:
+                logger.error(f"方法4构建URL失败: {e}")
+            
+            # 最后返回原始路径
+            logger.warning(f"无法获取MinIO URL，使用原始图片名: {image_name}")
+            return image_name
+        except Exception as e:
+            logger.error(f"获取图片URL失败: {e}")
+            return image_name
+    
+    def _update_markdown_image_urls(self, markdown_content, kb_id):
+        """更新Markdown内容中的图片URL
+        
+        参数:
+            markdown_content: 原始Markdown内容
+            kb_id: 知识库ID
+            
+        返回:
+            更新后的Markdown内容
+        """
+        try:
+            # 记录原始markdown内容中的图片引用
+            image_refs = re.findall(r'!\[(.*?)\]\((.*?)\)', markdown_content)
+            logger.info(f"在markdown中找到 {len(image_refs)} 个图片引用")
+            for i, (alt, path) in enumerate(image_refs):
+                logger.debug(f"图片引用 {i+1}: alt='{alt}', path='{path}'")
+            
+            def _replace_img(match):
+                alt_text = match.group(1) or '图片'
+                img_path = match.group(2)
+                img_name = os.path.basename(img_path)
+                
+                logger.debug(f"处理图片引用: alt='{alt_text}', path='{img_path}'")
+                
+                # 只处理本地图片路径，不处理已经是URL的图片
+                if not img_path.startswith(('http://', 'https://')):
+                    img_url = self._get_image_url(kb_id, img_name)
+                    logger.debug(f"替换图片链接: {img_path} -> {img_url}")
+                    # 返回HTML img标签格式
+                    return f'<img src="{img_url}" style="max-width: 300px;" alt="{alt_text}">'
+                else:
+                    logger.debug(f"跳过已经是URL的图片: {img_path}")
+                    # 将已有URL也转换为HTML标签
+                    return f'<img src="{img_path}" style="max-width: 300px;" alt="{alt_text}">'
+            
+            # 替换所有 ![]() 格式的图片链接
+            updated_content = re.sub(r'!\[(.*?)\]\((.*?)\)', _replace_img, markdown_content)
+            
+            # 检查是否有图片被替换
+            if updated_content != markdown_content:
+                # 记录更新后markdown内容中的图片引用
+                updated_image_refs = re.findall(r'<img src="(.*?)"', updated_content)
+                logger.info(f"更新后，markdown中有 {len(updated_image_refs)} 个图片引用(HTML格式)")
+                for i, url in enumerate(updated_image_refs):
+                    logger.debug(f"更新后的图片引用 {i+1}: url='{url}'")
+                
+                logger.info(f"已更新Markdown中的图片URL，kb_id: {kb_id}")
+            else:
+                logger.warning(f"没有图片链接被替换，kb_id: {kb_id}")
+                
+            return updated_content
+            
+        except Exception as e:
+            logger.error(f"更新Markdown图片URL失败: {e}")
+            # 出错时返回原始内容
+            return markdown_content
+    
+    def parse(self, file_path: str, kb_id: str = None, doc_id: str = None) -> List[Dict[str, Any]]:
         """
         使用 MinerU 解析 PDF 文件并转换为文档对象。
         
         参数:
             file_path: PDF 文件路径
+            kb_id: 知识库ID，用于图片上传到MinIO
+            doc_id: 文档ID，用于创建唯一的临时目录
             
         返回:
             文档对象列表
@@ -194,18 +444,20 @@ class MinerUParser:
             raise
         
         # 将 MinerU 结果转换为文档对象
-        documents = self._convert_to_documents(result, file_path)
+        documents = self._convert_to_documents(result, file_path, kb_id, doc_id)
         
-        logger.info(f"使用 MinerU 成功解析 PDF: {file_path}")
+        logger.info(f"使用 MinerU 成功解析 PDF: {file_path}，kb_id: {kb_id}")
         return documents
     
-    def _convert_to_documents(self, result: Dict[str, Any], file_path: str) -> List[Dict[str, Any]]:
+    def _convert_to_documents(self, result: Dict[str, Any], file_path: str, kb_id: str = None, doc_id: str = None) -> List[Dict[str, Any]]:
         """
         将 MinerU 解析结果转换为文档对象。
         
         参数:
             result: MinerU 解析结果
             file_path: 原始文件路径
+            kb_id: 知识库ID，用于图片上传到MinIO
+            doc_id: 文档ID，用于创建唯一的临时目录
             
         返回:
             文档对象列表
@@ -239,6 +491,38 @@ class MinerUParser:
             logger.warning(f"{file_path} 未返回 markdown 内容")
             return []
         
+        # 处理图片 - 如果提供了kb_id且doc_content中有images
+        images_processed = False
+        
+        # 首先检查顶层result中是否有images
+        if kb_id and 'images' in result and result['images']:
+            logger.info(f"从顶层result中找到images字段")
+            try:
+                # 处理images并更新markdown_content
+                processed_content = self._process_images(result['images'], markdown_content, kb_id, doc_id)
+                if processed_content != markdown_content:
+                    markdown_content = processed_content
+                    images_processed = True
+                    logger.info("使用顶层result中的images更新了markdown内容")
+            except Exception as e:
+                logger.error(f"处理顶层images时出错: {e}")
+        
+        # 然后检查doc_content中是否有images字段
+        if kb_id and not images_processed and 'images' in doc_content:
+            logger.info(f"从doc_content中找到images字段")
+            try:
+                # 处理images并更新markdown_content
+                processed_content = self._process_images(doc_content['images'], markdown_content, kb_id, doc_id)
+                if processed_content != markdown_content:
+                    markdown_content = processed_content
+                    images_processed = True
+                    logger.info("使用doc_content中的images更新了markdown内容")
+            except Exception as e:
+                logger.error(f"处理doc_content中的图片出错: {e}")
+        
+        if kb_id and not images_processed:
+            logger.warning(f"提供了kb_id({kb_id})，但未处理任何图片")
+        
         # 创建文档对象
         doc = {
             "page_content": markdown_content,
@@ -253,6 +537,109 @@ class MinerUParser:
         documents.append(doc)
         
         return documents
+
+    def _process_images(self, images, markdown_content, kb_id, doc_id=None):
+        """处理图片的辅助方法
+        
+        参数:
+            images: 图片数据字典，键为图片名称，值为base64编码的图片数据
+            markdown_content: 原始markdown内容
+            kb_id: 知识库ID
+            doc_id: 文档ID，用于创建唯一的临时目录
+            
+        返回:
+            更新后的markdown内容
+        """
+        if not images:
+            logger.warning("images参数为空，无法处理图片")
+            return markdown_content
+            
+        # 创建基于doc_id的临时目录，防止高并发情况下的冲突
+        temp_dir_id = doc_id if doc_id else f"mineru_{int(time.time())}_{os.getpid()}"
+        temp_base_dir = os.path.join(tempfile.gettempdir(), f"ragflow_{temp_dir_id}")
+        temp_images_dir = os.path.join(temp_base_dir, "images")
+        temp_md_path = os.path.join(temp_base_dir, "content.md")
+        temp_json_path = os.path.join(temp_base_dir, "middle.json")
+        
+        # 创建临时目录结构
+        os.makedirs(temp_images_dir, exist_ok=True)
+        logger.info(f"创建临时目录结构: {temp_base_dir}")
+        
+        try:
+            # 保存原始markdown内容到临时文件
+            with open(temp_md_path, 'w', encoding='utf-8') as f:
+                f.write(markdown_content)
+            logger.info(f"保存原始markdown内容到临时文件: {temp_md_path}")
+            
+            # 保存middle_json到临时文件（如果有）
+            if isinstance(images, dict) and len(images) > 0:
+                middle_json = {"images": images}
+                with open(temp_json_path, 'w', encoding='utf-8') as f:
+                    json.dump(middle_json, f, ensure_ascii=False, indent=2)
+                logger.info(f"保存middle_json到临时文件: {temp_json_path}")
+            
+            # 记录图片名称，用于后续检查
+            image_names = list(images.keys())
+            logger.info(f"需要处理的图片: {len(image_names)} 个")
+            
+            # 检查markdown中的图片引用
+            image_refs = re.findall(r'!\[(.*?)\]\((.*?)\)', markdown_content)
+            ref_names = [os.path.basename(path) for _, path in image_refs]
+            logger.info(f"Markdown中引用的图片: {len(ref_names)} 个")
+            
+            # 检查哪些图片没有被引用
+            not_referenced = set(image_names) - set(ref_names)
+            if not_referenced:
+                logger.warning(f"有 {len(not_referenced)} 张图片未在markdown中被引用")
+            
+            # 保存图片到临时目录
+            saved_count = self._save_images_from_result({'images': images}, temp_images_dir)
+            logger.info(f"保存了 {saved_count} 张图片到临时目录")
+            
+            # 上传图片到MinIO并更新markdown
+            updated_content = markdown_content
+            if saved_count > 0 and kb_id:
+                # 上传图片到MinIO
+                uploaded_count = self._upload_images_to_minio(kb_id, temp_images_dir)
+                logger.info(f"上传了 {uploaded_count} 张图片到MinIO")
+                
+                # 只有在成功上传图片后才更新markdown中的图片链接
+                if uploaded_count > 0:
+                    # 读取临时markdown文件
+                    with open(temp_md_path, 'r', encoding='utf-8') as f:
+                        md_content = f.read()
+                    
+                    # 更新markdown中的图片链接
+                    updated_content = self._update_markdown_image_urls(md_content, kb_id)
+                    
+                    # 将未引用的图片添加到markdown末尾（使用HTML标签格式）
+                    if not_referenced:
+                        additional_content = "\n\n## 附加图片\n\n"
+                        for img_name in not_referenced:
+                            img_url = self._get_image_url(kb_id, img_name)
+                            additional_content += f'<img src="{img_url}" style="max-width: 300px;" alt="{img_name}">\n\n'
+                        updated_content += additional_content
+                        logger.info(f"已将 {len(not_referenced)} 张未引用的图片添加到markdown末尾")
+                    
+                    # 保存更新后的markdown内容到临时文件
+                    with open(temp_md_path, 'w', encoding='utf-8') as f:
+                        f.write(updated_content)
+                    logger.info(f"保存更新后的markdown内容到临时文件: {temp_md_path}")
+            
+        except Exception as e:
+            logger.error(f"处理图片过程中出错: {str(e)}")
+            # 在出错时返回原始内容
+            return markdown_content
+        finally:
+            # 清理临时目录
+            try:
+                import shutil
+                shutil.rmtree(temp_base_dir, ignore_errors=True)
+                logger.debug(f"已清理临时目录结构: {temp_base_dir}")
+            except Exception as e:
+                logger.warning(f"清理临时目录失败: {e}")
+        
+        return updated_content
     
     def __call__(self, filename_or_binary, binary=None, from_page=None, to_page=None, callback=None, kb_id=None, doc_id=None) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         """
@@ -264,8 +651,8 @@ class MinerUParser:
             from_page: 起始页码
             to_page: 结束页码
             callback: 回调函数，用于报告进度
-            kb_id: 知识库ID，用于从minio对象存储中读取文件
-            doc_id: 文档ID，用于从minio对象存储中读取文件
+            kb_id: 知识库ID，用于从minio对象存储中读取文件和存储图片
+            doc_id: 文档ID，用于从minio对象存储中读取文件和创建唯一的临时目录
             
         返回:
             (文档块列表, 表格列表)
@@ -368,7 +755,8 @@ class MinerUParser:
             if callback:
                 callback(prog=0.2, msg="开始解析PDF文件")
                 
-            documents = self.parse(pdf_to_process)
+            # 确保kb_id和doc_id被传递给parse方法
+            documents = self.parse(pdf_to_process, kb_id, doc_id)
             
             if callback:
                 callback(prog=0.8, msg="PDF解析完成")

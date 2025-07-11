@@ -776,10 +776,8 @@ def chunk(filename: str = None, binary=None, chunk_token_num: int = 400, max_tok
     """
     try:
         from rag.nlp import tokenize_chunks
-        import copy
         import logging
         import re
-        import os
         from deepdoc.parser import PdfParser as Pdf
         from deepdoc.parser import PlainParser
         from deepdoc.parser.pdf_parser import VisionParser
@@ -847,10 +845,18 @@ def chunk(filename: str = None, binary=None, chunk_token_num: int = 400, max_tok
                             logging.error("MinerU 解析器返回空结果")
                             raise Exception("MinerU 服务异常：解析器返回空结果")
                     except Exception as e:
-                        logging.error(f"调用 MinerU 解析器失败: {str(e)}", exc_info=True)
-                        raise Exception(f"MinerU 服务异常: {str(e)}")
+                        # 改进错误处理
+                        error_msg = str(e)
+                        logging.error(f"调用 MinerU 解析器失败: {error_msg}")
+                        
+                        # 特殊处理RetryError
+                        if "RetryError" in error_msg and "ValueError" in error_msg:
+                            logging.error("检测到JSON解析错误，MinerU服务可能返回了无效响应")
+                            raise Exception("MinerU 服务返回了无效的响应格式，请检查服务是否正常运行")
+                        else:
+                            raise Exception(f"MinerU 服务异常: {error_msg}")
                 except ImportError as e:
-                    logging.error(f"导入或初始化 MinerU 解析器失败: {str(e)}", exc_info=True)
+                    logging.error(f"导入 MinerU 解析器失败: {str(e)}")
                     raise Exception(f"MinerU 解析器导入失败: {str(e)}")
             else:
                 logging.info(f"使用默认解析器: {layout_recognize}")
