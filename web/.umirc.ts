@@ -46,7 +46,7 @@ export default defineConfig({
       // pathRewrite: { '^/v1': '/v1' },
     },
     {
-      context: ['/minio'],
+      context: ['/minio/'],
       target: 'http://minio:9000/',
       changeOrigin: true,
       ws: true,
