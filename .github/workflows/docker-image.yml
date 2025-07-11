@@ -24,9 +24,9 @@ jobs:
       - name: Build Docker image
         run: |
           TAG="${{ github.event.inputs.image_tag }}"        
-          docker build --platform linux/amd64 --build-arg LIGHTEN=1 -f Dockerfile -t registry.cn-beijing.aliyuncs.com/flyrun/ragflow:knowledge_0.19.1_hierarchical_$TAG .
+          docker build --platform linux/amd64 --build-arg LIGHTEN=1 -f Dockerfile -t registry.cn-beijing.aliyuncs.com/flyrun/ragflow:$TAG .
 
       - name: Push Docker image
         run: |
           TAG="${{ github.event.inputs.image_tag }}"           
-          docker push registry.cn-beijing.aliyuncs.com/flyrun/ragflow:knowledge_0.19.1_hierarchical_$TAG
+          docker push registry.cn-beijing.aliyuncs.com/flyrun/ragflow:$TAG
