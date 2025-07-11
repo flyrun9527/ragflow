@@ -1,0 +1,31 @@
+name: Build and Push Docker Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        type: string
+        description: 'Branch name to build and deploy'
+        required: true
+        default: 'main'
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout specified branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch }}
+
+      - name: Log in to Docker Hub
+        run: |
+          docker login -u ${{ secrets.DOCKER_USERNAME }} -p ${{ secrets.DOCKER_PASSWORD }} registry.cn-beijing.aliyuncs.com
+      
+      - name: Build Docker image
+        run: |
+          docker build --platform linux/amd64 --build-arg LIGHTEN=1 -f Dockerfile -t registry.cn-beijing.aliyuncs.com/flyrun/ragflow:knowledge_0.19.1_hierarchical_$(date +%s) .
+
+      - name: Push Docker image
+        run: |
+          docker push registry.cn-beijing.aliyuncs.com/flyrun/ragflow:knowledge_0.19.1_hierarchical_$(date +%s)
