@@ -3,11 +3,16 @@ name: Build and Push Docker Image
 on:
   workflow_dispatch:
     inputs:
+      branch:
+        description: 'Specify the branch to build (e.g., knowledge_0.19.1_hierarchical)'
+        required: true
+        default: 'knowledge_0.19.1_hierarchical'
       image_tag:
         type: string
         description: 'Custom Docker image tag (e.g. v0.19.1-hierarchical)'
         default: 'latest'
         required: false
+
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
