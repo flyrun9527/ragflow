@@ -45,6 +45,13 @@ export default defineConfig({
       logger: console,
       // pathRewrite: { '^/v1': '/v1' },
     },
+    {
+      context: ['/minio'],
+      target: 'http://minio:9000/',
+      changeOrigin: true,
+      ws: true,
+      logger: console,
+    },
   ],
 
   chainWebpack(memo, args) {
