@@ -24,8 +24,8 @@ jobs:
       
       - name: Build Docker image
         run: |
-          docker build --platform linux/amd64 --build-arg LIGHTEN=1 -f Dockerfile -t registry.cn-beijing.aliyuncs.com/infiniflow/ragflow:knowledge_0.19.1_hierarchical_$(date +%s) .
+          docker build --platform linux/amd64 --build-arg LIGHTEN=1 -f Dockerfile -t registry.cn-beijing.aliyuncs.com/flyrun/ragflow:knowledge_0.19.1_hierarchical_$(date +%s) .
 
       - name: Push Docker image
         run: |
-          docker push registry.cn-beijing.aliyuncs.com/infiniflow/ragflow:knowledge_0.19.1_hierarchical_$(date +%s)
+          docker push registry.cn-beijing.aliyuncs.com/flyrun/ragflow:knowledge_0.19.1_hierarchical_$(date +%s)
