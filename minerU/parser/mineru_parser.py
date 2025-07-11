@@ -201,15 +201,29 @@ class MinerUParser:
                 base64_data = image_data
                 if isinstance(image_data, str):
                     if image_data.startswith('data:image/'):
-                        base64_data = image_data.split(',', 1)[1]
+                        # 找到逗号后的base64数据
+                        comma_index = image_data.find(',')
+                        if comma_index != -1:
+                            base64_data = image_data[comma_index + 1:]
+                        else:
+                            logger.warning(f"图片 {image_name} 的data URL格式不正确，缺少逗号分隔符")
+                            continue
                     else:
                         base64_data = image_data
+                    
+                    # 清理base64字符串中的空白字符
+                    base64_data = base64_data.strip()
                     
                 # 解码并保存图片
                 try:
                     image_bytes = base64.b64decode(base64_data)
                     if not image_bytes:
                         logger.warning(f"图片 {image_name} 解码后数据为空")
+                        continue
+                        
+                    # 验证图片数据长度
+                    if len(image_bytes) < 100:  # 100字节是一个合理的最小图片大小
+                        logger.warning(f"图片 {image_name} 数据太小，可能不是有效图片: {len(image_bytes)} 字节")
                         continue
                         
                     image_path = os.path.join(images_dir, image_name)
@@ -221,6 +235,7 @@ class MinerUParser:
                     logger.info(f"保存图片: {image_path}")
                 except Exception as decode_err:
                     logger.error(f"解码或保存图片 {image_name} 数据失败: {decode_err}")
+                    continue
                 
             except Exception as e:
                 logger.error(f"处理图片 {image_name} 失败: {e}")
@@ -310,56 +325,35 @@ class MinerUParser:
             图片访问URL
         """
         try:
-            # 方法2: 尝试使用STORAGE_IMPL的get_url或get_presigned_url
             from rag.utils.storage_factory import STORAGE_IMPL
+            
+            # 优先尝试从配置文件构建永久URL（最稳定的方法）
             try:
-                # 尝试get_url
-                if hasattr(STORAGE_IMPL, 'get_url'):
-                    url = STORAGE_IMPL.get_url(kb_id, image_name)
-                    logger.debug(f"方法2获取URL成功(get_url): {url}")
-                    return url
-                # 尝试get_presigned_url
-                elif hasattr(STORAGE_IMPL, 'get_presigned_url'):
-                    try:
-                        url = STORAGE_IMPL.get_presigned_url(kb_id, image_name)
-                        logger.debug(f"方法2获取URL成功(get_presigned_url): {url}")
-                        return url
-                    except Exception as presigned_err:
-                        logger.error(f"获取预签名URL失败，尝试其他方法: {presigned_err}")
-                        # 继续尝试其他方法
+                from rag import settings
+                minio_host = settings.MINIO.get("host", "localhost:9000")
+                secure = settings.MINIO.get("secure", False)
+                protocol = "https" if secure else "http"
+                url = f"{protocol}://{minio_host}/{kb_id}/{image_name}"
+                logger.debug(f"从配置构建永久URL: {url}")
+                return url
             except Exception as e:
-                logger.error(f"方法2获取URL失败: {e}")
+                logger.warning(f"从配置构建URL失败，尝试其他方法: {e}")
             
-            # # 方法3: 从配置文件构建URL
+            # 备选方案1: 尝试get_url（如果存在的话，通常是永久URL）
             # try:
-            #     # 导入配置
-            #     from rag import settings
-            #     minio_host = settings.MINIO.get("host", "localhost:9000")
-            #     secure = settings.MINIO.get("secure", False)
-            #     protocol = "https" if secure else "http"
-            #     url = f"{protocol}://{minio_host}/{kb_id}/{image_name}"
-            #     logger.debug(f"方法3从配置构建URL: {url}")
-            #     return url
+            #     if hasattr(STORAGE_IMPL, 'get_url'):
+            #         url = STORAGE_IMPL.get_url(kb_id, image_name)
+            #         logger.debug(f"获取URL成功(get_url): {url}")
+            #         return url
             # except Exception as e:
-            #     logger.error(f"方法3构建URL失败: {e}")
+            #     logger.warning(f"get_url方法失败: {e}")
             
-            # # 方法4: 硬编码方式构建URL
-            # try:
-            #     import os
-            #     minio_host = os.environ.get("MINIO_HOST", "localhost:9000")
-            #     secure = os.environ.get("MINIO_SECURE", "false").lower() == "true"
-            #     protocol = "https" if secure else "http"
-            #     url = f"{protocol}://{minio_host}/{kb_id}/{image_name}"
-            #     logger.debug(f"方法4从环境变量构建URL: {url}")
-            #     return url
-            # except Exception as e:
-            #     logger.error(f"方法4构建URL失败: {e}")
-            
-            # 最后返回原始路径
-            logger.warning(f"无法获取MinIO URL，使用原始图片名: {image_name}")
+            # 最后返回原始图片名（可能在某些环境下仍然有效）
+            logger.warning(f"所有URL获取方法都失败，使用原始图片名: {image_name}")
             return image_name
+            
         except Exception as e:
-            logger.error(f"获取图片URL失败: {e}")
+            logger.error(f"获取图片URL时发生异常: {e}")
             return image_name
     
     def _update_markdown_image_urls(self, markdown_content, kb_id):
@@ -372,42 +366,24 @@ class MinerUParser:
         返回:
             更新后的Markdown内容
         """
+        def _replace_img(match):
+            img_path = match.group(1)  # 获取图片路径
+            img_name = os.path.basename(img_path)
+            
+            # 只处理本地图片路径，不处理已经是URL的图片
+            if not img_path.startswith(('http://', 'https://')):
+                img_url = self._get_image_url(kb_id, img_name)
+                logger.info(f"需要替换img_path：{img_path}，img_url: {img_url}")
+                return f'<img src="{img_url}" style="max-width: 300px;" alt="图片">'
+            else:
+                # 已经是URL的图片也转换为HTML标签
+                return f'<img src="{img_path}" style="max-width: 300px;" alt="图片">'
+        
         try:
-            # 记录原始markdown内容中的图片引用
-            image_refs = re.findall(r'!\[(.*?)\]\((.*?)\)', markdown_content)
-            logger.info(f"在markdown中找到 {len(image_refs)} 个图片引用")
-            for i, (alt, path) in enumerate(image_refs):
-                logger.debug(f"图片引用 {i+1}: alt='{alt}', path='{path}'")
+            # 匹配MinerU生成的两种格式：![](文件名) 或 ![图片](文件名)
+            updated_content = re.sub(r'!\[(?:图片)?\]\((.*?)\)', _replace_img, markdown_content)
             
-            def _replace_img(match):
-                alt_text = match.group(1) or '图片'
-                img_path = match.group(2)
-                img_name = os.path.basename(img_path)
-                
-                logger.debug(f"处理图片引用: alt='{alt_text}', path='{img_path}'")
-                
-                # 只处理本地图片路径，不处理已经是URL的图片
-                if not img_path.startswith(('http://', 'https://')):
-                    img_url = self._get_image_url(kb_id, img_name)
-                    logger.debug(f"替换图片链接: {img_path} -> {img_url}")
-                    # 返回HTML img标签格式
-                    return f'<img src="{img_url}" style="max-width: 300px;" alt="{alt_text}">'
-                else:
-                    logger.debug(f"跳过已经是URL的图片: {img_path}")
-                    # 将已有URL也转换为HTML标签
-                    return f'<img src="{img_path}" style="max-width: 300px;" alt="{alt_text}">'
-            
-            # 替换所有 ![]() 格式的图片链接
-            updated_content = re.sub(r'!\[(.*?)\]\((.*?)\)', _replace_img, markdown_content)
-            
-            # 检查是否有图片被替换
             if updated_content != markdown_content:
-                # 记录更新后markdown内容中的图片引用
-                updated_image_refs = re.findall(r'<img src="(.*?)"', updated_content)
-                logger.info(f"更新后，markdown中有 {len(updated_image_refs)} 个图片引用(HTML格式)")
-                for i, url in enumerate(updated_image_refs):
-                    logger.debug(f"更新后的图片引用 {i+1}: url='{url}'")
-                
                 logger.info(f"已更新Markdown中的图片URL，kb_id: {kb_id}")
             else:
                 logger.warning(f"没有图片链接被替换，kb_id: {kb_id}")
@@ -416,7 +392,6 @@ class MinerUParser:
             
         except Exception as e:
             logger.error(f"更新Markdown图片URL失败: {e}")
-            # 出错时返回原始内容
             return markdown_content
     
     def parse(self, file_path: str, kb_id: str = None, doc_id: str = None) -> List[Dict[str, Any]]:
@@ -491,37 +466,27 @@ class MinerUParser:
             logger.warning(f"{file_path} 未返回 markdown 内容")
             return []
         
-        # 处理图片 - 如果提供了kb_id且doc_content中有images
-        images_processed = False
-        
-        # 首先检查顶层result中是否有images
-        if kb_id and 'images' in result and result['images']:
-            logger.info(f"从顶层result中找到images字段")
-            try:
-                # 处理images并更新markdown_content
-                processed_content = self._process_images(result['images'], markdown_content, kb_id, doc_id)
-                if processed_content != markdown_content:
-                    markdown_content = processed_content
-                    images_processed = True
-                    logger.info("使用顶层result中的images更新了markdown内容")
-            except Exception as e:
-                logger.error(f"处理顶层images时出错: {e}")
-        
-        # 然后检查doc_content中是否有images字段
-        if kb_id and not images_processed and 'images' in doc_content:
-            logger.info(f"从doc_content中找到images字段")
-            try:
-                # 处理images并更新markdown_content
-                processed_content = self._process_images(doc_content['images'], markdown_content, kb_id, doc_id)
-                if processed_content != markdown_content:
-                    markdown_content = processed_content
-                    images_processed = True
-                    logger.info("使用doc_content中的images更新了markdown内容")
-            except Exception as e:
-                logger.error(f"处理doc_content中的图片出错: {e}")
-        
-        if kb_id and not images_processed:
-            logger.warning(f"提供了kb_id({kb_id})，但未处理任何图片")
+        # 处理图片 - 优先检查顶层result，然后检查doc_content
+        if kb_id:
+            images_data = None
+            if 'images' in result and result['images']:
+                images_data = result['images']
+                logger.info(f"从顶层result中找到images字段")
+            elif 'images' in doc_content and doc_content['images']:
+                images_data = doc_content['images']
+                logger.info(f"从doc_content中找到images字段")
+            
+            if images_data:
+                try:
+                    # 处理images并更新markdown_content
+                    processed_content = self._process_images(images_data, markdown_content, kb_id, doc_id)
+                    if processed_content != markdown_content:
+                        markdown_content = processed_content
+                        logger.info("已更新markdown内容中的图片")
+                except Exception as e:
+                    logger.error(f"处理图片时出错: {e}")
+            else:
+                logger.warning(f"提供了kb_id({kb_id})，但未找到图片数据")
         
         # 创建文档对象
         doc = {
@@ -558,33 +523,19 @@ class MinerUParser:
         temp_dir_id = doc_id if doc_id else f"mineru_{int(time.time())}_{os.getpid()}"
         temp_base_dir = os.path.join(tempfile.gettempdir(), f"ragflow_{temp_dir_id}")
         temp_images_dir = os.path.join(temp_base_dir, "images")
-        temp_md_path = os.path.join(temp_base_dir, "content.md")
-        temp_json_path = os.path.join(temp_base_dir, "middle.json")
         
         # 创建临时目录结构
         os.makedirs(temp_images_dir, exist_ok=True)
         logger.info(f"创建临时目录结构: {temp_base_dir}")
         
         try:
-            # 保存原始markdown内容到临时文件
-            with open(temp_md_path, 'w', encoding='utf-8') as f:
-                f.write(markdown_content)
-            logger.info(f"保存原始markdown内容到临时文件: {temp_md_path}")
-            
-            # 保存middle_json到临时文件（如果有）
-            if isinstance(images, dict) and len(images) > 0:
-                middle_json = {"images": images}
-                with open(temp_json_path, 'w', encoding='utf-8') as f:
-                    json.dump(middle_json, f, ensure_ascii=False, indent=2)
-                logger.info(f"保存middle_json到临时文件: {temp_json_path}")
-            
             # 记录图片名称，用于后续检查
             image_names = list(images.keys())
             logger.info(f"需要处理的图片: {len(image_names)} 个")
             
-            # 检查markdown中的图片引用
-            image_refs = re.findall(r'!\[(.*?)\]\((.*?)\)', markdown_content)
-            ref_names = [os.path.basename(path) for _, path in image_refs]
+            # 检查markdown中的图片引用 - 使用与_update_markdown_image_urls一致的正则
+            image_refs = re.findall(r'!\[(?:图片)?\]\((.*?)\)', markdown_content)
+            ref_names = [os.path.basename(path) for path in image_refs]
             logger.info(f"Markdown中引用的图片: {len(ref_names)} 个")
             
             # 检查哪些图片没有被引用
@@ -598,33 +549,24 @@ class MinerUParser:
             
             # 上传图片到MinIO并更新markdown
             updated_content = markdown_content
-            if saved_count > 0 and kb_id:
+            if saved_count > 0:
                 # 上传图片到MinIO
                 uploaded_count = self._upload_images_to_minio(kb_id, temp_images_dir)
                 logger.info(f"上传了 {uploaded_count} 张图片到MinIO")
                 
                 # 只有在成功上传图片后才更新markdown中的图片链接
                 if uploaded_count > 0:
-                    # 读取临时markdown文件
-                    with open(temp_md_path, 'r', encoding='utf-8') as f:
-                        md_content = f.read()
-                    
                     # 更新markdown中的图片链接
-                    updated_content = self._update_markdown_image_urls(md_content, kb_id)
+                    updated_content = self._update_markdown_image_urls(markdown_content, kb_id)
                     
-                    # 将未引用的图片添加到markdown末尾（使用HTML标签格式）
-                    if not_referenced:
-                        additional_content = "\n\n## 附加图片\n\n"
-                        for img_name in not_referenced:
-                            img_url = self._get_image_url(kb_id, img_name)
-                            additional_content += f'<img src="{img_url}" style="max-width: 300px;" alt="{img_name}">\n\n'
-                        updated_content += additional_content
-                        logger.info(f"已将 {len(not_referenced)} 张未引用的图片添加到markdown末尾")
-                    
-                    # 保存更新后的markdown内容到临时文件
-                    with open(temp_md_path, 'w', encoding='utf-8') as f:
-                        f.write(updated_content)
-                    logger.info(f"保存更新后的markdown内容到临时文件: {temp_md_path}")
+                    # 将未引用的图片添加到markdown末尾（使用HTML标签格式） 暂时不需要添加附加图片（没有图片的大概率是表格图片）
+                    # if not_referenced:
+                    #     additional_content = "\n\n## 附加图片\n\n"
+                    #     for img_name in not_referenced:
+                    #         img_url = self._get_image_url(kb_id, img_name)
+                    #         additional_content += f'<img src="{img_url}" style="max-width: 300px;" alt="{img_name}">\n\n'
+                    #     updated_content += additional_content
+                    #     logger.info(f"已将 {len(not_referenced)} 张未引用的图片添加到markdown末尾")
             
         except Exception as e:
             logger.error(f"处理图片过程中出错: {str(e)}")
@@ -789,6 +731,13 @@ class MinerUParser:
             if temp_file_path and os.path.exists(temp_file_path):
                 try:
                     os.unlink(temp_file_path)
+                except:
+                    pass
+            
+            # 清理转换后的PDF文件
+            if temp_pdf_to_delete and temp_pdf_to_delete != temp_file_path and os.path.exists(temp_pdf_to_delete):
+                try:
+                    os.unlink(temp_pdf_to_delete)
                 except:
                     pass
             
