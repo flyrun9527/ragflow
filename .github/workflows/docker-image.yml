@@ -3,11 +3,6 @@ name: Build and Push Docker Image
 on:
   workflow_dispatch:
     inputs:
-      branch:
-        type: string
-        description: 'Branch name to build and deploy'
-        required: true
-        default: 'main'
       image_tag:
         type: string
         description: 'Custom Docker image tag (e.g. v0.19.1-hierarchical)'
