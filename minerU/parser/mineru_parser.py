@@ -330,30 +330,30 @@ class MinerUParser:
             except Exception as e:
                 logger.error(f"方法2获取URL失败: {e}")
             
-            # 方法3: 从配置文件构建URL
-            try:
-                # 导入配置
-                from rag import settings
-                minio_host = settings.MINIO.get("host", "localhost:9000")
-                secure = settings.MINIO.get("secure", False)
-                protocol = "https" if secure else "http"
-                url = f"{protocol}://{minio_host}/{kb_id}/{image_name}"
-                logger.debug(f"方法3从配置构建URL: {url}")
-                return url
-            except Exception as e:
-                logger.error(f"方法3构建URL失败: {e}")
+            # # 方法3: 从配置文件构建URL
+            # try:
+            #     # 导入配置
+            #     from rag import settings
+            #     minio_host = settings.MINIO.get("host", "localhost:9000")
+            #     secure = settings.MINIO.get("secure", False)
+            #     protocol = "https" if secure else "http"
+            #     url = f"{protocol}://{minio_host}/{kb_id}/{image_name}"
+            #     logger.debug(f"方法3从配置构建URL: {url}")
+            #     return url
+            # except Exception as e:
+            #     logger.error(f"方法3构建URL失败: {e}")
             
-            # 方法4: 硬编码方式构建URL
-            try:
-                import os
-                minio_host = os.environ.get("MINIO_HOST", "localhost:9000")
-                secure = os.environ.get("MINIO_SECURE", "false").lower() == "true"
-                protocol = "https" if secure else "http"
-                url = f"{protocol}://{minio_host}/{kb_id}/{image_name}"
-                logger.debug(f"方法4从环境变量构建URL: {url}")
-                return url
-            except Exception as e:
-                logger.error(f"方法4构建URL失败: {e}")
+            # # 方法4: 硬编码方式构建URL
+            # try:
+            #     import os
+            #     minio_host = os.environ.get("MINIO_HOST", "localhost:9000")
+            #     secure = os.environ.get("MINIO_SECURE", "false").lower() == "true"
+            #     protocol = "https" if secure else "http"
+            #     url = f"{protocol}://{minio_host}/{kb_id}/{image_name}"
+            #     logger.debug(f"方法4从环境变量构建URL: {url}")
+            #     return url
+            # except Exception as e:
+            #     logger.error(f"方法4构建URL失败: {e}")
             
             # 最后返回原始路径
             logger.warning(f"无法获取MinIO URL，使用原始图片名: {image_name}")
