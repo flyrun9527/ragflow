@@ -13,6 +13,8 @@ import tempfile
 from typing import List, Dict, Any, Tuple
 from rag.app.utils import split_markdown_to_chunks_configured
 import tiktoken
+
+from rag.nlp import rag_tokenizer
 # 使用临时目录作为tiktoken缓存
 tiktoken_cache_dir = tempfile.gettempdir()
 os.environ["TIKTOKEN_CACHE_DIR"] = tiktoken_cache_dir
@@ -187,9 +189,9 @@ def chunk(filename: str = None, binary=None, **kwargs) -> List[Dict[str, Any]]:
         # 创建文档基础信息
         doc = {
             "docnm_kwd": filename,
-            "title_tks": [],
-            "title_sm_tks": []
+            "title_tks": rag_tokenizer.tokenize(re.sub(r"\.[a-zA-Z]+$", "", filename))
         }
+        doc["title_sm_tks"] = rag_tokenizer.fine_grained_tokenize(doc["title_tks"])
         
         # 检查是否为英文
         is_english = kwargs.get('lang', 'Chinese').lower() == 'english'
