@@ -1,0 +1,138 @@
+# Documentation:
+# https://docs.sglang.ai/backend/server_arguments.html#common-launch-commands
+
+# 基础版本（支持 pipeline 和 vlm-transformers）
+# 完整版本（支持所有后端，包括 sglang，**推荐**）
+services:
+  mineru2-knowflow:
+    image: mineru-api-full
+    container_name: mineru2-knowflow
+    restart: always
+    ports:
+      - 28888:8888
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    ipc: host    
+    command:
+      python3 app.py
+#    deploy:
+#      resources:
+#        reservations:
+#          devices:
+#            - driver: nvidia
+#              device_ids: ["0"]
+#              capabilities: [gpu]
+    networks:
+      - mineru2_network
+      - external_net_1
+  mineru-api:
+    image: mineru-api
+    container_name: mineru-api
+    restart: always
+    ports:
+      - 8005:8000
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    ipc: host    
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
+    networks:
+      - mineru2_network 
+      - external_net_1             
+  mineru2-sglang:
+    build:
+      context: .
+      dockerfile: mineru2/Dockerfile
+      args:
+        INSTALL_TYPE: all  
+    container_name: mineru2-sglang
+    restart: always
+    ports:
+      - 30000:30000
+#    volumes:
+#      - ./mineru.json:/root/mineru.json      
+    environment:
+      MINERU_MODEL_SOURCE: local
+    entrypoint: mineru-sglang-server
+    # entrypoint: mineru-api  
+    command:
+      --host 0.0.0.0
+      --port 30000
+      --enable-torch-compile  # You can also enable torch.compile to accelerate inference speed by approximately 15%
+      # --dp 2  # If you have more than two GPUs with 24GB VRAM or above, you can use sglang's multi-GPU parallel mode to increase throughput  
+      # --tp 2  # If you have two GPUs with 12GB or 16GB VRAM, you can use the Tensor Parallel (TP) mode
+      # --mem-fraction-static 0.7  # If you have two GPUs with 11GB VRAM, in addition to Tensor Parallel mode, you need to reduce the KV cache size
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    ipc: host
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:30000/health || exit 1"]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
+    networks:
+      - mineru2_network 
+      - external_net_1             
+  mineru2-api:
+    build:
+      context: .
+      dockerfile: mineru2/Dockerfile
+      args:
+        INSTALL_TYPE: all
+    container_name: mineru2-api
+    environment:
+      MINERU_MODEL_SOURCE: local    
+    restart: always
+    # volumes:
+    #   - ./models/PDF-Extract-Kit-1___0:/root/.cache/modelscope/hub/models/OpenDataLab/PDF-Extract-Kit-1___0
+    #   - ./models/MinerU2___0-2505-0___9B:/root/.cache/modelscope/hub/models/OpenDataLab/MinerU2___0-2505-0___9B
+    #   - ./mineru.json:/root/mineru.json       
+    ports:
+      - 8889:8000   
+    entrypoint: mineru-api  
+    command:
+      --host 0.0.0.0
+      --port 8000
+    ipc: host
+    networks:
+      - mineru2_network    
+      - external_net_1
+  mineru2-gradio:
+    build:
+      context: .
+      dockerfile: mineru2/Dockerfile
+      args:
+        INSTALL_TYPE: all
+    container_name: mineru2-gradio
+    restart: always
+    ports:
+      - 7860:7860   
+    entrypoint: mineru-gradio
+    command:
+      --server-name 127.0.0.1
+      --server-port 7860
+      # 默认使用 pipeline/vlm-transformers/vlm-sglang-client 后端
+      # --enable-sglang-engine  #使用 vlm-sglang-engine/pipeline 后端
+    ipc: host    
+    networks:
+      - mineru2_network    
+      - external_net_1
+networks:
+  mineru2_network:
+    name: mineru2_network
+    driver: bridge
+  external_net_1:
+    name: app_net
+    external: true     

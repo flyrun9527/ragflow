@@ -112,7 +112,8 @@ const ChunkMethodModal: React.FC<IProps> = ({
 
   const showMaxTokenNumber =
     selectedTag === DocumentParserType.Naive ||
-    selectedTag === DocumentParserType.KnowledgeGraph;
+    selectedTag === DocumentParserType.KnowledgeGraph ||
+    selectedTag === DocumentParserType.Hierarchical;
 
   const showEntityTypes = selectedTag === DocumentParserType.KnowledgeGraph;
 
