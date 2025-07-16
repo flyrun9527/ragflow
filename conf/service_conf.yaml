@@ -14,6 +14,7 @@ minio:
   user: 'rag_flow'
   password: 'infini_rag_flow'
   host: '192.168.130.24:9000'
+  externalHost: 'http://192.168.130.24:9380'  # 访问minio接口
 es:
   hosts: 'http://192.168.130.24:1200'
   username: 'elastic'
