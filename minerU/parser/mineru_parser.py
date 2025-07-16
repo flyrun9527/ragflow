@@ -330,7 +330,7 @@ class MinerUParser:
             # 优先尝试从配置文件构建永久URL（最稳定的方法）
             try:
                 from rag import settings
-                minio_host = settings.MINIO.get("host", "localhost:9000")
+                minio_host = settings.MINIO.get("externalHost", "localhost:9000")
                 secure = settings.MINIO.get("secure", False)
                 protocol = "https" if secure else "http"
                 url = f"{protocol}://{minio_host}/{kb_id}/{image_name}"
@@ -372,8 +372,8 @@ class MinerUParser:
             
             # 只处理本地图片路径，不处理已经是URL的图片
             if not img_path.startswith(('http://', 'https://')):
-                # img_url = self._get_image_url(kb_id, img_name) # 别删除 该地址获取minio地址 但是需要web访问所以采用前端代理 /minio方式
-                img_url = f"/v1/document/image/{kb_id}-{img_name}"
+                img_url = self._get_image_url(kb_id, img_name) # 别删除 该地址获取minio地址 但是需要web访问所以采用前端代理 /minio方式
+                # img_url = f"http://192.168.130.24:11180/v1/document/image/{kb_id}-{img_name}"
                 logger.info(f"需要替换img_path：{img_path}，img_url: {img_url}")
                 return f'<img src="{img_url}" style="max-width: 300px;" alt="图片">'
             else:
