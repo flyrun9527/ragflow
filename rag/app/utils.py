@@ -19,6 +19,8 @@ import tempfile
 import json
 import re
 from markdown import markdown as md_to_html
+import time
+import difflib
 try:
     from markdown_it import MarkdownIt
     from markdown_it.tree import SyntaxTreeNode
@@ -469,38 +471,23 @@ def get_blocks_from_md(md_file_path):
         _blocks_cache[md_file_path] = []
         return []
 
-def longest_common_substring_length(str1, str2):
-    """计算两个字符串的最长公共子串长度"""
-    if not str1 or not str2:
-        return 0
-    
-    m, n = len(str1), len(str2)
-    # 创建DP表
-    dp = [[0] * (n + 1) for _ in range(m + 1)]
-    max_length = 0
-    
-    for i in range(1, m + 1):
-        for j in range(1, n + 1):
-            if str1[i-1] == str2[j-1]:
-                dp[i][j] = dp[i-1][j-1] + 1
-                max_length = max(max_length, dp[i][j])
-            else:
-                dp[i][j] = 0
-    
-    return max_length
+# 全局或外部传入
+matched_global_indices = set()
 
-
-def get_bbox_for_chunk(md_file_path, chunk_content):
+def get_bbox_for_chunk(md_file_path, chunk_content, block_list=None, matched_global_indices=None):
     """
     根据 md 文件路径和 chunk 内容，返回构成该 chunk 的连续 block 的 bbox 列表。
-    该算法采用混合评分机制寻找最佳"锚点" block，该评分兼顾了最长公共子串的长度和其占 block 自身长度的比例。
+    采用 difflib.SequenceMatcher 找出最相似的 block（相似度最高），
     然后从该锚点向前后扩展，寻找同样存在于 chunk 中的连续 block。
-    这旨在平衡精确匹配和部分（截断）匹配的场景。
-    
+    支持外部传入 block_list，避免重复解析。
     支持Pipeline模式和VLM模式的数据结构。
+    匹配到的块会通过 matched_global_indices 记录，避免后续 chunk 重复匹配。
     """
     try:
-        block_list = get_blocks_from_md(md_file_path)
+        if block_list is None:
+            block_list = get_blocks_from_md(md_file_path)
+        if matched_global_indices is None:
+            matched_global_indices = set()
         if not block_list:
             print(f"[WARNING] 无法获取块列表，跳过位置信息获取")
             return None
@@ -509,73 +496,60 @@ def get_bbox_for_chunk(md_file_path, chunk_content):
         if not chunk_content_clean:
             return None
 
-        # 检查是否为VLM模式
-        is_vlm_mode = any(block.get('source_mode', '').startswith('vlm') for block in block_list)
-        
-        if is_vlm_mode:
-            print(f"[INFO] 检测到VLM模式数据，处理坐标信息")
-
-        # 计算每个block与chunk的匹配分数
-        scored_blocks = []
+        # 用 difflib.SequenceMatcher 找最相似的 block
+        best_idx = -1
+        best_ratio = 0.0
         for i, block in enumerate(block_list):
+            if i in matched_global_indices:
+                continue
             block_text = block.get('text', '').strip()
             if not block_text:
                 continue
-            
-            # 计算最长公共子串
-            lcs_length = longest_common_substring_length(chunk_content_clean, block_text)
-            if lcs_length == 0:
-                continue
-                
-            # 混合评分：LCS长度 + 覆盖率
-            coverage_score = lcs_length / len(block_text) if len(block_text) > 0 else 0
-            combined_score = lcs_length * 0.7 + coverage_score * len(block_text) * 0.3
-            
-            scored_blocks.append((i, combined_score, lcs_length))
-
-        if not scored_blocks:
-            print(f"[WARNING] 未找到匹配的块")
+            ratio = difflib.SequenceMatcher(None, chunk_content_clean, block_text).ratio()
+            if ratio > best_ratio:
+                best_ratio = ratio
+                best_idx = i
+        if best_idx == -1 or best_ratio < 0.1:  # 阈值可调整
+            print(f"[WARNING] 未找到足够相似的块 (最高相似度: {best_ratio:.3f})")
             return None
 
-        # 找到最佳锚点
-        scored_blocks.sort(key=lambda x: x[1], reverse=True)
-        anchor_idx = scored_blocks[0][0]
-        
         # 从锚点扩展
-        matched_blocks = [block_list[anchor_idx]]
-        
+        matched_indices = [best_idx]
         # 向前扩展
-        for i in range(anchor_idx - 1, -1, -1):
+        for i in range(best_idx - 1, -1, -1):
+            if i in matched_global_indices:
+                continue
             block_text = block_list[i].get('text', '').strip()
             if block_text and block_text in chunk_content_clean:
-                matched_blocks.insert(0, block_list[i])
+                matched_indices.insert(0, i)
             else:
                 break
-        
         # 向后扩展
-        for i in range(anchor_idx + 1, len(block_list)):
+        for i in range(best_idx + 1, len(block_list)):
+            if i in matched_global_indices:
+                continue
             block_text = block_list[i].get('text', '').strip()
             if block_text and block_text in chunk_content_clean:
-                matched_blocks.append(block_list[i])
+                matched_indices.append(i)
             else:
                 break
-        
         # 提取位置信息
         positions = []
-        for idx, block in enumerate(matched_blocks):
+        for idx in matched_indices:
+            block = block_list[idx]
             bbox = block.get('bbox')
             page_number = block.get('page_idx')
             if bbox and page_number is not None:
                 position = [page_number, bbox[0], bbox[2], bbox[1], bbox[3]]
                 positions.append(position)
-        
+        # 记录已匹配 block 索引
+        matched_global_indices.update(matched_indices)
         if positions:
-            print(f"[INFO] 为chunk找到{len(positions)}个位置")
+            print(f"[INFO] 为chunk找到{len(positions)}个位置（最高相似度: {best_ratio:.3f}），并已记录 matched_global_indices")
             return positions
         else:
             print(f"[WARNING] 未能提取到有效的位置信息")
             return None
-            
     except Exception as e:
         print(f"[ERROR] 获取chunk位置失败: {e}")
         return None
