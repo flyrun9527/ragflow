@@ -50,14 +50,20 @@ class MinerUParserConfig(BaseModel):
         default="ch",
         description="Language for OCR recognition (auto, ch, en, etc.)"
     )
+
+    # Server URL for the MinerU service
+    server_url: str = Field(
+        default="http://192.168.130.24:30000",
+        description="URL of the MinerU server"
+    )
     
     @classmethod
     def from_env(cls) -> "MinerUParserConfig":
         """Create a config from environment variables."""
         return cls(
             api_url=os.environ.get("MINERU_API_URL", "http://192.168.130.24:8889"),
+            server_url=os.environ.get("MINERU_SERVER_URL", "http://192.168.130.24:30000"),
             timeout=int(os.environ.get("MINERU_TIMEOUT", "300")),
             use_hierarchical=os.environ.get("MINERU_USE_HIERARCHICAL", "true").lower() == "true",
-            backend=os.environ.get("MINERU_BACKEND", "pipeline"),
-            language=os.environ.get("MINERU_LANGUAGE", "auto"),
+            backend=os.environ.get("MINERU_BACKEND", "vlm-sglang-client"),
         ) 

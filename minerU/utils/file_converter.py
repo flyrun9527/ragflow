@@ -8,7 +8,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # --- Constants ---
-GOTENBERG_URL = os.environ.get("GOTENBERG_URL", "http://localhost:3000")
+GOTENBERG_URL = os.environ.get("GOTENBERG_URL", "http://192.168.130.24:23000")
 DEFAULT_GOTENBERG_TIMEOUT_URL = 120  # seconds for URL conversion
 DEFAULT_GOTENBERG_TIMEOUT_OFFICE = 300  # seconds for Office conversion
 

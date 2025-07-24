@@ -20,7 +20,6 @@ import time
 import re
 from pathlib import Path
 import tempfile
-import json
 import base64
 from typing import Dict, List, Optional, Tuple, Any, Union
 
@@ -33,18 +32,6 @@ from minerU.utils.file_converter import ensure_pdf
 
 from .config import MinerUParserConfig
 
-# 移除对 rag.schema 的导入
-# from rag.schema.document import Document
-# from rag.schema.multi_modal import (
-#     AudioSegment,
-#     Formula,
-#     Image,
-#     Link,
-#     MarkdownFragment,
-#     Table,
-# )
-
-
 logger = logging.getLogger(__name__)
 
 
@@ -53,103 +40,14 @@ class MinerUParserError(Exception):
     pass
 
 
-class MinerUAPIClient:
-    """与 MinerU API 交互的客户端。"""
-
-    def __init__(self, api_url: str, timeout: int = 300):
-        """初始化 MinerU API 客户端。
-        
-        参数:
-            api_url: MinerU API 的 URL
-            timeout: API 请求的超时时间（秒）
-        """
-        self.api_url = api_url.rstrip('/')
-        self.timeout = timeout
-    
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
-    def parse_pdf(self, file_path: str, backend: str = "vlm-sglang-client", language: str = "ch") -> Dict[str, Any]:
-        """
-        提交 PDF 文件到 MinerU 进行解析。
-        
-        参数:
-            file_path: PDF 文件路径
-            backend: 使用的后端引擎
-            language: OCR 识别的语言
-            
-        返回:
-            包含解析内容的字典
-        """
-        # 检查文件是否存在
-        if not os.path.exists(file_path):
-            raise FileNotFoundError(f"文件未找到: {file_path}")
-        
-        # 准备请求数据
-        data = {
-                'output_dir': './output',
-                'lang_list': 'ch',
-                'backend': 'vlm-sglang-client',
-                'parse_method': 'auto',
-                'formula_enable': True,  
-                'table_enable': True,    
-                'server_url': 'http://192.168.130.24:30000',
-                'return_md': True,       
-                'return_middle_json': True,  
-                'return_model_output': False,  
-                'return_content_list': False,  
-                'return_images': True,   
-                'start_page_id': 0,       
-                'end_page_id': 99999     
-            }
-            
-        # 准备表单数据
-        with open(file_path, 'rb') as f:
-            files = {'files': f}
-            
-            # 提交请求到 MinerU API
-            try:
-                # 添加详细的请求信息
-                session = requests.Session()
-                session.trust_env = False  # 禁用代理环境变量
-                
-                # 发送请求
-                response = session.post(
-                    f"{self.api_url}/file_parse", 
-                    files=files,
-                    data=data,
-                    timeout=self.timeout
-                )
-                
-                # 打印响应信息
-                logger.debug(f"响应状态码: {response.status_code}")
-                logger.debug(f"响应头: {response.headers}")
-                
-                # 检查响应状态
-                if response.status_code != 200:
-                    logger.info(f"向 MinerU API 提交文件: {file_path}")
-                    logger.debug(f"API URL: {self.api_url}/file_parse")
-                    logger.debug(f"请求参数: {data}")
-                    logger.error(f"API返回错误状态码: {response.status_code}")
-                    logger.error(f"响应内容: {response.text[:500]}")
-                    response.raise_for_status()
-                
-                # 解析JSON响应
-                try:
-                    result = response.json()
-                    logger.info(f"MinerU API 返回结果: {result}")
-                    return result
-                except ValueError as e:
-                    logger.error(f"无法解析API响应为JSON: {response.text[:500]}")
-                    raise MinerUParserError(f"无法解析API响应为JSON: {str(e)}")
-                
-            except requests.RequestException as e:
-                logger.error(f"与 MinerU API 通信错误: {str(e)}")
-                raise MinerUParserError(f"与 MinerU API 通信错误: {str(e)}")
-
-
 class MinerUParser:
-    """MinerU PDF 解析器实现。"""
+    """MinerU PDF 解析器实现。
+    
+    使用远程API服务解析PDF文件，处理返回的Markdown内容和图片。
+    """
 
-    def __init__(self, api_url: Optional[str] = None, timeout: int = 300, config: Optional[MinerUParserConfig] = None, s3_config: Optional[Dict[str, Any]] = None):
+    def __init__(self, api_url: Optional[str] = None, timeout: int = 300, 
+                 config: Optional[MinerUParserConfig] = None, s3_config: Optional[Dict[str, Any]] = None):
         """初始化 MinerU 解析器。
         
         参数:
@@ -158,343 +56,413 @@ class MinerUParser:
             config: MinerU 解析器配置
             s3_config: S3配置，包含endpoint_url、access_key、secret_key等
         """
-        # 优先使用传入的配置
+        # 配置初始化
         if config is None:
             config = MinerUParserConfig.from_env()
         
-        # 使用提供的 API URL 或从配置获取
         self.api_url = api_url or config.api_url
+        self.server_url= config.server_url
         self.timeout = timeout or config.timeout
         self.backend = config.backend
         self.language = config.language
-        
-        # S3配置
         self.s3_config = s3_config or {}
-        
-        # 初始化 API 客户端
-        self.client = MinerUAPIClient(self.api_url, self.timeout)
-        
-    def _save_images_from_result(self, result, images_dir):
-        """从 MinerU API 结果中保存图片到临时目录
+
+    def __call__(self, filename_or_binary, binary=None, from_page=None, to_page=None, 
+                 callback=None, kb_id=None, doc_id=None) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """解析PDF文件并返回文档块和表格。
         
         参数:
-            result: MinerU API 返回的结果
-            images_dir: 保存图片的临时目录路径
-            
-        返回:
-            保存的图片数量
-        """
-        saved_count = 0
-        
-        if not result or not isinstance(result, dict) or 'images' not in result or not result['images']:
-            logger.warning(f"API结果中没有images字段或为空")
-            return 0
-            
-        os.makedirs(images_dir, exist_ok=True)
-        logger.info(f"创建/确认临时图片目录: {images_dir}")
-        
-        for image_name, image_data in result['images'].items():
-            try:
-                if not image_data:
-                    logger.warning(f"图片 {image_name} 的数据为空")
-                    continue
-                    
-                # 提取 base64 数据（去掉 data:image/jpeg;base64, 前缀）
-                base64_data = image_data
-                if isinstance(image_data, str):
-                    if image_data.startswith('data:image/'):
-                        # 找到逗号后的base64数据
-                        comma_index = image_data.find(',')
-                        if comma_index != -1:
-                            base64_data = image_data[comma_index + 1:]
-                        else:
-                            logger.warning(f"图片 {image_name} 的data URL格式不正确，缺少逗号分隔符")
-                            continue
-                    else:
-                        base64_data = image_data
-                    
-                    # 清理base64字符串中的空白字符
-                    base64_data = base64_data.strip()
-                    
-                # 解码并保存图片
-                try:
-                    image_bytes = base64.b64decode(base64_data)
-                    if not image_bytes:
-                        logger.warning(f"图片 {image_name} 解码后数据为空")
-                        continue
-                        
-                    # 验证图片数据长度
-                    if len(image_bytes) < 100:  # 100字节是一个合理的最小图片大小
-                        logger.warning(f"图片 {image_name} 数据太小，可能不是有效图片: {len(image_bytes)} 字节")
-                        continue
-                        
-                    image_path = os.path.join(images_dir, image_name)
-                    
-                    with open(image_path, 'wb') as f:
-                        f.write(image_bytes)
-                        
-                    saved_count += 1
-                    logger.info(f"保存图片: {image_path}")
-                except Exception as decode_err:
-                    logger.error(f"解码或保存图片 {image_name} 数据失败: {decode_err}")
-                    continue
-                
-            except Exception as e:
-                logger.error(f"处理图片 {image_name} 失败: {e}")
-        
-        logger.info(f"总共保存了 {saved_count} 张图片到 {images_dir}")
-        return saved_count
-    
-    def _upload_images_to_minio(self, kb_id, images_dir):
-        """将图片上传到 MinIO 对象存储
-        
-        参数:
-            kb_id: 知识库ID，用作 MinIO bucket 名称
-            images_dir: 图片所在的本地临时目录
-            
-        返回:
-            上传成功的图片数量
-        """
-        try:
-            from rag.utils.storage_factory import STORAGE_IMPL
-            
-            if not os.path.exists(images_dir) or not os.path.isdir(images_dir):
-                logger.error(f"图片目录不存在或不是目录: {images_dir}")
-                return 0
-                
-            # 检查目录中是否有图片文件
-            image_files = [f for f in os.listdir(images_dir) if os.path.isfile(os.path.join(images_dir, f)) 
-                           and os.path.splitext(f.lower())[1] in ('.png', '.jpg', '.jpeg', '.gif', '.webp')]
-            
-            if not image_files:
-                logger.warning(f"图片目录 {images_dir} 中没有图片文件")
-                return 0
-            
-            # 不再检查桶是否存在，直接上传 - STORAGE_IMPL会在put时创建桶
-            success_count = 0
-            total_count = len(image_files)
-            
-            # 上传目录中的所有图片
-            for img_file in image_files:
-                img_path = os.path.join(images_dir, img_file)
-                
-                try:
-                    # 读取图片文件并完整加载到内存中
-                    with open(img_path, 'rb') as f:
-                        img_data = f.read()
-                    
-                    # 确保数据已读取
-                    if img_data is None or len(img_data) == 0:
-                        logger.error(f"无法读取图片数据: {img_file}")
-                        continue
-                    
-                    # 确定内容类型
-                    ext = os.path.splitext(img_file)[1].lower()
-                    content_type = f"image/{ext[1:]}"
-                    if content_type == "image/jpg":
-                        content_type = "image/jpeg"
-                    
-                    # 上传到 MinIO - 使用项目的API
-                    # 注意：项目中RAGFlowMinio.put会自己创建BytesIO，所以这里直接传递字节数据
-                    try:
-                        STORAGE_IMPL.put(kb_id, img_file, img_data)
-                        success_count += 1
-                        logger.info(f"成功上传图片到 MinIO: {img_file}")
-                    except Exception as put_err:
-                        logger.error(f"上传图片到MinIO失败: {put_err}")
-                        
-                except Exception as e:
-                    logger.error(f"读取图片 {img_file} 失败: {e}")
-                    
-            logger.info(f"上传到 MinIO 完成: 成功 {success_count}/{total_count}")
-            return success_count
-            
-        except ImportError as ie:
-            logger.error(f"无法导入STORAGE_IMPL: {ie}")
-            return 0
-        except Exception as e:
-            logger.error(f"上传图片到MinIO时出错: {e}")
-            return 0
-    
-    def _get_image_url(self, kb_id, image_name):
-        """生成MinIO图片访问URL
-        
-        参数:
+            filename_or_binary: 文件名或二进制内容
+            binary: 二进制内容（如果filename_or_binary是文件名）
+            from_page: 起始页码
+            to_page: 结束页码
+            callback: 进度回调函数
             kb_id: 知识库ID
-            image_name: 图片名称
+            doc_id: 文档ID
             
         返回:
-            图片访问URL
+            (文档块列表, 表格列表)
         """
-        try:
-            from rag.utils.storage_factory import STORAGE_IMPL
-            
-            # 优先尝试从配置文件构建永久URL（最稳定的方法）
-            try:
-                from rag import settings
-                minio_host = settings.MINIO.get("host", "localhost:9000")
-                secure = settings.MINIO.get("secure", False)
-                protocol = "https" if secure else "http"
-                url = f"{protocol}://{minio_host}/{kb_id}/{image_name}"
-                logger.debug(f"从配置构建永久URL: {url}")
-                return url
-            except Exception as e:
-                logger.warning(f"从配置构建URL失败，尝试其他方法: {e}")
-            
-            # 备选方案1: 尝试get_url（如果存在的话，通常是永久URL）
-            # try:
-            #     if hasattr(STORAGE_IMPL, 'get_url'):
-            #         url = STORAGE_IMPL.get_url(kb_id, image_name)
-            #         logger.debug(f"获取URL成功(get_url): {url}")
-            #         return url
-            # except Exception as e:
-            #     logger.warning(f"get_url方法失败: {e}")
-            
-            # 最后返回原始图片名（可能在某些环境下仍然有效）
-            logger.warning(f"所有URL获取方法都失败，使用原始图片名: {image_name}")
-            return image_name
-            
-        except Exception as e:
-            logger.error(f"获取图片URL时发生异常: {e}")
-            return image_name
-    
-    def _update_markdown_image_urls(self, markdown_content, kb_id):
-        """更新Markdown内容中的图片URL
-        
-        参数:
-            markdown_content: 原始Markdown内容
-            kb_id: 知识库ID
-            
-        返回:
-            更新后的Markdown内容
-        """
-        def _replace_img(match):
-            img_path = match.group(1)  # 获取图片路径
-            img_name = os.path.basename(img_path)
-            
-            # 只处理本地图片路径，不处理已经是URL的图片
-            if not img_path.startswith(('http://', 'https://')):
-                from rag import settings
-                image_host = settings.MINIO.get("externalHost", "localhost:9380")
-                # img_url = self._get_image_url(kb_id, img_name) # 别删除 该地址获取minio地址 但是需要web访问所以采用前端代理 /minio方式
-                img_url = f"{image_host}/v1/document/image/{kb_id}-{img_name}"
-                logger.info(f"需要替换img_path：{img_path}，img_url: {img_url}")
-                return f'<img src="{img_url}" style="max-width: 300px;" alt="图片">'
-            else:
-                # 已经是URL的图片也转换为HTML标签
-                return f'<img src="{img_path}" style="max-width: 300px;" alt="图片">'
+        # 创建临时目录用于文档处理
+        temp_dir = tempfile.mkdtemp(prefix="mineru_parser_")
+        source_file_path = None
+        pdf_file_path = None
+        temp_pdf_to_delete = None
+        is_temp_source = False
         
         try:
-            # 匹配MinerU生成的两种格式：![](文件名) 或 ![图片](文件名)
-            updated_content = re.sub(r'!\[(?:图片)?\]\((.*?)\)', _replace_img, markdown_content)
-            
-            if updated_content != markdown_content:
-                logger.info(f"已更新Markdown中的图片URL，kb_id: {kb_id}")
-            else:
-                logger.warning(f"没有图片链接被替换，kb_id: {kb_id}")
+            # 1. 准备源文件 - 根据输入类型获取文件
+            if callback:
+                callback(prog=0.05, msg="准备源文件")
                 
-            return updated_content
+            # 处理二进制内容
+            if binary is not None:
+                source_file_path = self._save_binary_to_temp(binary, temp_dir)
+                is_temp_source = True
+                
+            # 处理MinIO存储的文件    
+            elif kb_id and doc_id:
+                source_file_path = self._get_file_from_minio(kb_id, doc_id, temp_dir)
+                is_temp_source = True
+                
+            # 处理本地文件    
+            else:
+                # 对于本地文件，直接使用原始路径
+                if not os.path.exists(filename_or_binary):
+                    raise FileNotFoundError(f"文件未找到: {filename_or_binary}")
+                source_file_path = filename_or_binary
+                is_temp_source = False
+                
+            if callback:
+                callback(prog=0.1, msg="文件准备完成")
+                
+            # 2. 确保文件格式为PDF - 必要时进行转换
+            if callback:
+                callback(prog=0.15, msg="检查文档格式并转换")
+                
+            logger.info(f"检查文档格式并转换: {source_file_path}")
+            pdf_file_path, temp_pdf_to_delete = ensure_pdf(source_file_path, temp_dir)
+            
+            if not pdf_file_path:
+                raise Exception(f"无法处理文件: {source_file_path}，转换为PDF失败")
+            
+            if temp_pdf_to_delete:
+                logger.info(f"文档已转换为PDF: {pdf_file_path}")
+                if callback:
+                    callback(prog=0.25, msg="文档转换完成")
+            else:
+                logger.info(f"文档已是PDF格式: {pdf_file_path}")
+                if callback:
+                    callback(prog=0.25, msg="PDF文件检查完成")
+            
+            # 3. 调用解析API处理PDF
+            if callback:
+                callback(prog=0.3, msg="开始解析PDF文件")
+                
+            documents = self._parse_pdf(
+                pdf_path=pdf_file_path, 
+                kb_id=kb_id, 
+                doc_id=doc_id
+            )
+            
+            if callback:
+                callback(prog=0.8, msg="PDF解析完成")
+            
+            # 4. 提取文档块
+            sections = []
+            tables = []
+            
+            for doc in documents:
+                sections.append({
+                    "text": doc["page_content"],
+                    "metadata": doc["metadata"]
+                })
+                
+            if callback:
+                callback(prog=1.0, msg="文档处理完成")
+                
+            return sections, tables
             
         except Exception as e:
-            logger.error(f"更新Markdown图片URL失败: {e}")
-            return markdown_content
-    
-    def parse(self, file_path: str, kb_id: str = None, doc_id: str = None) -> List[Dict[str, Any]]:
-        """
-        使用 MinerU 解析 PDF 文件并转换为文档对象。
-        
-        参数:
-            file_path: PDF 文件路径
-            kb_id: 知识库ID，用于图片上传到MinIO
-            doc_id: 文档ID，用于创建唯一的临时目录
-            
-        返回:
-            文档对象列表
-        """
-        logger.info(f"使用 MinerU 解析 PDF: {file_path}")
-        
-        # 从 MinerU 获取原始解析结果
-        try:
-            result = self.client.parse_pdf(file_path, self.backend, self.language)
-        except MinerUParserError as e:
-            logger.error(f"使用 MinerU 解析 PDF 失败: {str(e)}")
-            raise  # 直接重新抛出 MinerUParserError
-        except Exception as e:
-            logger.error(f"使用 MinerU 解析 PDF 失败: {str(e)}")
+            logger.error(f"PDF解析失败: {str(e)}")
             raise
-        
-        # 将 MinerU 结果转换为文档对象
-        documents = self._convert_to_documents(result, file_path, kb_id, doc_id)
-        
-        logger.info(f"使用 MinerU 成功解析 PDF: {file_path}，kb_id: {kb_id}")
-        return documents
-    
-    def _convert_to_documents(self, result: Dict[str, Any], file_path: str, kb_id: str = None, doc_id: str = None) -> List[Dict[str, Any]]:
-        """
-        将 MinerU 解析结果转换为文档对象。
+        finally:
+            # 清理临时PDF文件
+            if temp_pdf_to_delete and os.path.exists(temp_pdf_to_delete):
+                try:
+                    os.remove(temp_pdf_to_delete)
+                    logger.info(f"已清理临时PDF文件: {temp_pdf_to_delete}")
+                except OSError as e:
+                    logger.warning(f"清理临时PDF文件失败: {temp_pdf_to_delete}, 错误: {e}")
+            
+            # 清理临时源文件（如果是临时创建的）
+            if is_temp_source and source_file_path and os.path.exists(source_file_path):
+                try:
+                    os.remove(source_file_path)
+                    logger.info(f"已清理临时源文件: {source_file_path}")
+                except OSError as e:
+                    logger.warning(f"清理临时源文件失败: {source_file_path}, 错误: {e}")
+            
+            # 清理临时目录
+            try:
+                import shutil
+                if os.path.exists(temp_dir):
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+                    logger.debug(f"已清理临时目录: {temp_dir}")
+            except OSError as e:
+                logger.warning(f"清理临时目录失败: {temp_dir}, 错误: {e}")
+                
+            # 检查临时文件是否都已清理
+            if temp_pdf_to_delete and os.path.exists(temp_pdf_to_delete):
+                logger.warning(f"临时PDF文件未被删除: {temp_pdf_to_delete}")
+                
+            if is_temp_source and source_file_path and os.path.exists(source_file_path):
+                logger.warning(f"临时源文件未被删除: {source_file_path}")
+                
+            if os.path.exists(temp_dir):
+                logger.warning(f"临时目录未被删除: {temp_dir}")
+
+    def _prepare_file(self, filename_or_binary, binary, kb_id, doc_id, callback, temp_dir=None):
+        """准备需要解析的文件，根据不同的输入源获取原始文件。
         
         参数:
-            result: MinerU 解析结果
-            file_path: 原始文件路径
-            kb_id: 知识库ID，用于图片上传到MinIO
-            doc_id: 文档ID，用于创建唯一的临时目录
+            filename_or_binary: 文件名或二进制内容的标识符
+            binary: 二进制内容（如果有）
+            kb_id: 知识库ID
+            doc_id: 文档ID
+            callback: 进度回调函数
+            temp_dir: 临时文件存储目录
             
         返回:
-            文档对象列表
+            str: 源文件的路径（可能是临时文件）
+            
+        异常:
+            MinerUParserError: 当文件准备失败时抛出
+            FileNotFoundError: 当本地文件不存在时抛出
+        """
+        
+        try:
+            source_file_path = None
+            
+            # 情况1: 从MinIO存储获取文件
+            if kb_id and doc_id:
+                if callback:
+                    callback(prog=0.05, msg="从MinIO获取文件")
+                source_file_path = self._get_file_from_minio(kb_id=kb_id, doc_id=doc_id, temp_dir=temp_dir)
+                
+            # 情况2: 处理二进制内容
+            elif binary is not None:
+                if callback:
+                    callback(prog=0.05, msg="处理二进制内容")
+                source_file_path = self._process_binary(binary=binary, temp_dir=temp_dir)
+                
+            # 情况3: 处理本地文件
+            else:
+                if callback:
+                    callback(prog=0.05, msg="处理本地文件")
+                source_file_path = self._process_local_file(file_path=filename_or_binary, temp_dir=temp_dir)
+            
+            if callback:
+                callback(prog=0.1, msg="文件准备完成")
+                
+            return source_file_path
+            
+        except Exception as e:
+            logger.error(f"准备文件失败: {str(e)}")
+            if temp_dir and os.path.exists(temp_dir):
+                self._cleanup_temp_dir(temp_dir)
+            raise
+
+    def _get_file_from_minio(self, kb_id, doc_id, temp_dir):
+        """从MinIO读取文件。"""
+        try:
+            from rag.utils.storage_factory import STORAGE_IMPL
+            from api.db.services.file2document_service import File2DocumentService
+            from api.db.services.document_service import DocumentService
+            
+            # 获取文档信息
+            _, doc = DocumentService.get_by_id(doc_id)
+            if not doc:
+                raise MinerUParserError(f"找不到文档: {doc_id}")
+            
+            # 获取文件存储位置
+            bucket, location = File2DocumentService.get_storage_address(doc_id=doc_id)
+            
+            # 读取文件
+            file_bytes = STORAGE_IMPL.get(bucket, location)
+            
+            # 确定文件扩展名
+            ext = os.path.splitext(doc.name)[1] or '.pdf'
+            
+            # 保存到临时文件
+            temp_file_path = os.path.join(temp_dir, f"temp_file{ext}")
+            with open(temp_file_path, 'wb') as f:
+                f.write(file_bytes)
+            
+            # 转换为PDF（如需要）
+            if ext.lower() != '.pdf':
+                pdf_path, _ = ensure_pdf(temp_file_path, temp_dir)
+                return pdf_path
+            
+            return temp_file_path
+            
+        except Exception as e:
+            logger.error(f"从MinIO读取文件失败: {str(e)}")
+            raise MinerUParserError(f"从MinIO读取文件失败: {str(e)}")
+
+    def _process_binary(self, binary, temp_dir):
+        """处理二进制内容。"""
+        # 保存二进制内容
+        ext = '.pdf' if binary.startswith(b'%PDF') else '.bin'
+        temp_file_path = os.path.join(temp_dir, f"temp_file{ext}")
+        
+        with open(temp_file_path, 'wb') as f:
+            f.write(binary)
+        
+        # 转换为PDF（如需要）
+        pdf_path, _ = ensure_pdf(temp_file_path, temp_dir)
+        if not pdf_path:
+            raise MinerUParserError("无法将二进制内容转换为PDF")
+        
+        return pdf_path
+
+    def _process_local_file(self, file_path, temp_dir):
+        """处理本地文件。
+        
+        对于本地文件，不应创建临时副本，直接处理原始文件。
+        只有在文件格式转换时才会创建临时文件。
+        """
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"文件未找到: {file_path}")
+            
+        # 如果文件已经是PDF格式，直接返回原始路径
+        # 如果需要转换，ensure_pdf会返回转换后的文件路径
+        # 这样确保了原始文件不会被修改或删除
+        return file_path
+
+    def _parse_pdf(self, pdf_path, kb_id, doc_id):
+        """解析PDF文件，提取内容并转换为文档对象。
+        
+        参数:
+            pdf_path: PDF文件的路径
+            kb_id: 知识库ID（用于图片处理）
+            doc_id: 文档ID（用于图片处理）
+            
+        返回:
+            List[Dict]: 包含解析结果的文档对象列表
+            
+        异常:
+            MinerUParserError: 解析失败时抛出
+        """
+        # 1. 调用API解析PDF
+        api_result = self._api_parse_pdf(file_path=pdf_path)
+        
+        # 2. 将API结果转换为文档对象
+        return self._convert_to_documents(
+            result=api_result, 
+            file_path=pdf_path, 
+            kb_id=kb_id, 
+            doc_id=doc_id
+        )
+
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
+    def _api_parse_pdf(self, file_path):
+        """调用MinerU API解析PDF文件，支持自动重试。
+        
+        参数:
+            file_path: PDF文件的路径
+            
+        返回:
+            Dict: API返回的解析结果
+            
+        异常:
+            MinerUParserError: API调用失败或解析响应失败时抛出
+            requests.exceptions.RequestException: 网络请求失败时抛出
+        """
+        # 1. 准备请求参数
+        request_params = {
+            'output_dir': './output',
+            'lang_list': self.language,
+            'backend': self.backend,
+            'parse_method': 'auto',
+            'server_url': self.server_url,
+            'formula_enable': True,  
+            'table_enable': True,
+            'return_md': True,
+            'return_middle_json': True,
+            'return_model_output': False,
+            'return_content_list': False,
+            'return_images': True,
+            'start_page_id': 0,
+            'end_page_id': 99999
+        }
+        
+        # 2. 发送API请求
+        with open(file_path, 'rb') as file_object:
+            files = {'files': file_object}
+            
+            # 创建会话并配置
+            session = requests.Session()
+            session.trust_env = False
+            
+            # 发送请求
+            logger.info(f"发送请求到MinerU API: {self.api_url}")
+            logger.info(f"请求参数: {request_params}")
+            response = session.post(
+                url=f"{self.api_url.rstrip('/')}/file_parse", 
+                files=files,
+                data=request_params,
+                timeout=self.timeout
+            )
+            
+            # 3. 检查响应状态
+            if response.status_code != 200:
+                error_msg = f"API返回错误状态码: {response.status_code}"
+                logger.error(error_msg)
+                response.raise_for_status()
+            
+            # 4. 解析JSON响应
+            try:
+                result = response.json()
+                return result
+            except ValueError as e:
+                error_msg = f"无法解析API响应为JSON: {str(e)}"
+                logger.error(error_msg)
+                raise MinerUParserError(error_msg)
+
+    def _convert_to_documents(self, result, file_path, kb_id, doc_id):
+        """将API结果转换为文档对象，处理Markdown内容和图片。
+        
+        参数:
+            result: API返回的解析结果
+            file_path: 原始文件路径
+            kb_id: 知识库ID（用于图片处理）
+            doc_id: 文档ID（用于图片处理）
+            
+        返回:
+            List[Dict]: 包含处理后内容的文档对象列表
         """
         documents = []
         
-        # 检查返回结果格式
+        # 1. 验证结果格式
         if not isinstance(result, dict) or 'results' not in result:
-            logger.warning(f"{file_path} 返回结果格式不正确")
+            logger.warning(f"文件 {file_path} 的返回结果格式不正确")
             return []
         
-        # 获取结果中的第一个文档（通常只有一个）
-        results = result.get('results', {})
-        if not results:
-            logger.warning(f"{file_path} 没有解析结果")
+        # 2. 获取文档内容
+        results_data = result.get('results', {})
+        if not results_data:
+            logger.warning(f"文件 {file_path} 的返回结果为空")
             return []
             
-        # 获取第一个文档的键（通常是文件名）
-        doc_key = next(iter(results.keys()), None)
+        # 3. 获取第一个文档的键
+        doc_key = next(iter(results_data.keys()), None)
         if not doc_key:
-            logger.warning(f"{file_path} 解析结果中没有文档")
+            logger.warning(f"文件 {file_path} 的返回结果中未找到文档键")
             return []
             
-        # 获取文档内容
-        doc_content = results[doc_key]
-        
-        # 提取 markdown 内容
+        # 4. 提取Markdown内容
+        doc_content = results_data[doc_key]
         markdown_content = doc_content.get('md_content', '')
         
         if not markdown_content:
-            logger.warning(f"{file_path} 未返回 markdown 内容")
+            logger.warning(f"文件 {file_path} 未返回Markdown内容")
             return []
         
-        # 处理图片 - 优先检查顶层result，然后检查doc_content
+        # 5. 处理图片（如果有）
         if kb_id:
-            images_data = None
-            if 'images' in result and result['images']:
-                images_data = result['images']
-                logger.info(f"从顶层result中找到images字段")
-            elif 'images' in doc_content and doc_content['images']:
-                images_data = doc_content['images']
-                logger.info(f"从doc_content中找到images字段")
-            
+            images_data = result.get('images') or doc_content.get('images')
             if images_data:
-                try:
-                    # 处理images并更新markdown_content
-                    processed_content = self._process_images(images_data, markdown_content, kb_id, doc_id)
-                    if processed_content != markdown_content:
-                        markdown_content = processed_content
-                        logger.info("已更新markdown内容中的图片")
-                except Exception as e:
-                    logger.error(f"处理图片时出错: {e}")
-            else:
-                logger.warning(f"提供了kb_id({kb_id})，但未找到图片数据")
+                # 处理图片并更新Markdown中的图片链接
+                markdown_content = self._process_images(
+                    images=images_data,
+                    markdown_content=markdown_content,
+                    kb_id=kb_id,
+                    doc_id=doc_id
+                )
         
-        # 创建文档对象
-        doc = {
+        # 6. 创建文档对象
+        document = {
             "page_content": markdown_content,
             "metadata": {
                 "source": file_path,
@@ -503,252 +471,252 @@ class MinerUParser:
             }
         }
         
-        # 将文档添加到列表中
-        documents.append(doc)
-        
+        documents.append(document)
         return documents
 
     def _process_images(self, images, markdown_content, kb_id, doc_id=None):
-        """处理图片的辅助方法
+        """处理图片并更新Markdown内容中的图片引用。
         
         参数:
-            images: 图片数据字典，键为图片名称，值为base64编码的图片数据
-            markdown_content: 原始markdown内容
-            kb_id: 知识库ID
-            doc_id: 文档ID，用于创建唯一的临时目录
+            images: 图片数据字典，键为图片名称，值为base64编码的图片内容
+            markdown_content: 包含图片引用的Markdown内容
+            kb_id: 知识库ID（用于存储和构建URL）
+            doc_id: 文档ID（可选，用于构建唯一临时目录）
             
         返回:
-            更新后的markdown内容
+            str: 更新了图片链接的Markdown内容
         """
+        # 如果没有图片，直接返回原始内容
         if not images:
-            logger.warning("images参数为空，无法处理图片")
             return markdown_content
             
-        # 创建基于doc_id的临时目录，防止高并发情况下的冲突
-        temp_dir_id = doc_id if doc_id else f"mineru_{int(time.time())}_{os.getpid()}"
+        # 1. 创建临时目录
+        temp_dir_id = doc_id or f"mineru_{int(time.time())}_{os.getpid()}"
         temp_base_dir = os.path.join(tempfile.gettempdir(), f"ragflow_{temp_dir_id}")
         temp_images_dir = os.path.join(temp_base_dir, "images")
-        
-        # 创建临时目录结构
         os.makedirs(temp_images_dir, exist_ok=True)
-        logger.info(f"创建临时目录结构: {temp_base_dir}")
         
         try:
-            # 记录图片名称，用于后续检查
-            image_names = list(images.keys())
-            logger.info(f"需要处理的图片: {len(image_names)} 个")
+            # 2. 保存图片到临时目录
+            saved_count = self._save_images(
+                images=images, 
+                images_dir=temp_images_dir
+            )
             
-            # 检查markdown中的图片引用 - 使用与_update_markdown_image_urls一致的正则
-            image_refs = re.findall(r'!\[(?:图片)?\]\((.*?)\)', markdown_content)
-            ref_names = [os.path.basename(path) for path in image_refs]
-            logger.info(f"Markdown中引用的图片: {len(ref_names)} 个")
-            
-            # 检查哪些图片没有被引用
-            not_referenced = set(image_names) - set(ref_names)
-            if not_referenced:
-                logger.warning(f"有 {len(not_referenced)} 张图片未在markdown中被引用")
-            
-            # 保存图片到临时目录
-            saved_count = self._save_images_from_result({'images': images}, temp_images_dir)
-            logger.info(f"保存了 {saved_count} 张图片到临时目录")
-            
-            # 上传图片到MinIO并更新markdown
-            updated_content = markdown_content
+            # 3. 上传图片到存储服务并更新Markdown
             if saved_count > 0:
-                # 上传图片到MinIO
-                uploaded_count = self._upload_images_to_minio(kb_id, temp_images_dir)
-                logger.info(f"上传了 {uploaded_count} 张图片到MinIO")
+                uploaded_count = self._upload_to_minio(
+                    kb_id=kb_id, 
+                    images_dir=temp_images_dir
+                )
                 
-                # 只有在成功上传图片后才更新markdown中的图片链接
+                # 如果成功上传，更新Markdown中的图片链接
                 if uploaded_count > 0:
-                    # 更新markdown中的图片链接
-                    updated_content = self._update_markdown_image_urls(markdown_content, kb_id)
-                    
-                    # 将未引用的图片添加到markdown末尾（使用HTML标签格式） 暂时不需要添加附加图片（没有图片的大概率是表格图片）
-                    # if not_referenced:
-                    #     additional_content = "\n\n## 附加图片\n\n"
-                    #     for img_name in not_referenced:
-                    #         img_url = self._get_image_url(kb_id, img_name)
-                    #         additional_content += f'<img src="{img_url}" style="max-width: 300px;" alt="{img_name}">\n\n'
-                    #     updated_content += additional_content
-                    #     logger.info(f"已将 {len(not_referenced)} 张未引用的图片添加到markdown末尾")
+                    return self._update_image_links(
+                        markdown_content=markdown_content, 
+                        kb_id=kb_id
+                    )
             
-        except Exception as e:
-            logger.error(f"处理图片过程中出错: {str(e)}")
-            # 在出错时返回原始内容
+            # 如果没有保存或上传成功，返回原始内容
             return markdown_content
-        finally:
-            # 清理临时目录
-            try:
-                import shutil
-                shutil.rmtree(temp_base_dir, ignore_errors=True)
-                logger.debug(f"已清理临时目录结构: {temp_base_dir}")
-            except Exception as e:
-                logger.warning(f"清理临时目录失败: {e}")
-        
-        return updated_content
-    
-    def __call__(self, filename_or_binary, binary=None, from_page=None, to_page=None, callback=None, kb_id=None, doc_id=None) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-        """
-        解析 PDF 文件并返回文档块和表格。
-        
-        参数:
-            filename_or_binary: 文件名或二进制内容
-            binary: 二进制内容（如果 filename_or_binary 是文件名）
-            from_page: 起始页码
-            to_page: 结束页码
-            callback: 回调函数，用于报告进度
-            kb_id: 知识库ID，用于从minio对象存储中读取文件和存储图片
-            doc_id: 文档ID，用于从minio对象存储中读取文件和创建唯一的临时目录
             
-        返回:
-            (文档块列表, 表格列表)
-        """
-        # 创建临时目录用于处理文件
-        temp_dir = tempfile.mkdtemp(prefix="mineru_parser_")
-        temp_file_path = None
-        pdf_to_process = None
-        temp_pdf_to_delete = None
+        finally:
+            # 4. 清理临时目录
+            self._cleanup_temp_dir(temp_dir=temp_base_dir)
+
+    def _save_images(self, images, images_dir):
+        """保存图片到临时目录。"""
+        saved_count = 0
+        
+        for image_name, image_data in images.items():
+            try:
+                if not image_data:
+                    continue
+                
+                # 提取base64数据
+                base64_data = image_data
+                if isinstance(image_data, str) and image_data.startswith('data:image/'):
+                    comma_index = image_data.find(',')
+                    if comma_index != -1:
+                        base64_data = image_data[comma_index + 1:]
+                    else:
+                        continue
+                
+                # 解码并保存
+                try:
+                    image_bytes = base64.b64decode(base64_data.strip())
+                    if len(image_bytes) < 100:
+                        continue
+                    
+                    image_path = os.path.join(images_dir, image_name)
+                    with open(image_path, 'wb') as f:
+                        f.write(image_bytes)
+                        
+                    saved_count += 1
+                    
+                except Exception as e:
+                    logger.error(f"解码图片失败: {str(e)}")
+                    
+            except Exception as e:
+                logger.error(f"处理图片失败: {str(e)}")
+        
+        return saved_count
+
+    def _upload_to_minio(self, kb_id, images_dir):
+        """上传图片到MinIO。"""
+        try:
+            from rag.utils.storage_factory import STORAGE_IMPL
+            
+            # 检查图片文件
+            image_files = [f for f in os.listdir(images_dir) 
+                          if os.path.isfile(os.path.join(images_dir, f)) 
+                          and os.path.splitext(f.lower())[1] in ('.png', '.jpg', '.jpeg', '.gif', '.webp')]
+            
+            if not image_files:
+                return 0
+            
+            # 上传图片
+            success_count = 0
+            
+            for img_file in image_files:
+                try:
+                    img_path = os.path.join(images_dir, img_file)
+                    with open(img_path, 'rb') as f:
+                        img_data = f.read()
+                    
+                    STORAGE_IMPL.put(kb_id, img_file, img_data)
+                    success_count += 1
+                    
+                except Exception as e:
+                    logger.error(f"上传图片失败: {str(e)}")
+            
+            return success_count
+            
+        except ImportError:
+            logger.error("无法导入存储模块")
+            return 0
+
+    def _update_image_links(self, markdown_content, kb_id):
+        """更新Markdown中的图片链接。"""
+        def _replace_img(match):
+            img_path = match.group(1)
+            img_name = os.path.basename(img_path)
+            
+            if not img_path.startswith(('http://', 'https://')):
+                from rag import settings
+                image_host = settings.MINIO.get("externalHost", "localhost:9380")
+                img_url = f"{image_host}/v1/document/image/{kb_id}-{img_name}"
+                return f'<img src="{img_url}" style="max-width: 300px;" alt="图片">'
+            else:
+                return f'<img src="{img_path}" style="max-width: 300px;" alt="图片">'
         
         try:
-            # 如果提供了kb_id和doc_id，从minio对象存储中读取文件
-            if kb_id and doc_id:
-                if callback:
-                    callback(prog=0.1, msg="从minio对象存储中读取文件")
-                
-                try:
-                    # 从Minio读取文件
-                    from rag.utils.storage_factory import STORAGE_IMPL
-                    from api.db.services.file2document_service import File2DocumentService
-                    from api.db.services.document_service import DocumentService
-                    
-                    # 获取文档信息
-                    e, doc = DocumentService.get_by_id(doc_id)
-                    if not e:
-                        raise Exception(f"找不到文档: {doc_id}")
-                    
-                    # 获取文件的存储位置
-                    bucket, location = File2DocumentService.get_storage_address(doc_id=doc_id)
-                    
-                    # 读取文件
-                    logger.info(f"从minio读取文件: {bucket}/{location}")
-                    file_bytes = STORAGE_IMPL.get(bucket, location)
-                    
-                    # 确定文件扩展名
-                    ext = os.path.splitext(doc.name)[1]
-                    if not ext:
-                        ext = '.pdf'  # 默认使用PDF扩展名
-                    
-                    # 保存到临时文件
-                    temp_file_path = os.path.join(temp_dir, f"temp_file{ext}")
-                    with open(temp_file_path, 'wb') as f:
-                        f.write(file_bytes)
-                    
-                    logger.info(f"成功从minio读取文件并保存到临时文件: {temp_file_path}")
-                    
-                    # 检查是否需要转换为PDF
-                    if not ext.lower() == '.pdf':
-                        if callback:
-                            callback(prog=0.15, msg="转换文件为PDF格式")
-                        pdf_to_process, temp_pdf_to_delete = ensure_pdf(temp_file_path, temp_dir)
-                    else:
-                        pdf_to_process = temp_file_path
-                        temp_pdf_to_delete = temp_file_path
-                
-                except Exception as e:
-                    logger.error(f"从minio读取或处理文件失败: {str(e)}")
-                    raise MinerUParserError(f"从minio读取或处理文件失败: {str(e)}")
-            # 处理二进制内容
-            elif binary is not None:
-                # 保存二进制内容到临时文件
-                temp_file_path = os.path.join(temp_dir, "temp_file")
-                
-                # 检查内容类型并添加适当的扩展名
-                if binary.startswith(b'%PDF'):
-                    temp_file_path += '.pdf'
-                else:
-                    # 默认保存为二进制文件，稍后会尝试转换
-                    temp_file_path += '.bin'
-                
-                with open(temp_file_path, 'wb') as temp_file:
-                    temp_file.write(binary)
-                
-                if callback:
-                    callback(prog=0.1, msg="二进制内容已保存到临时文件")
-                
-                # 尝试转换为PDF（如果需要）
-                pdf_to_process, temp_pdf_to_delete = ensure_pdf(temp_file_path, temp_dir, callback, self.s3_config)
-                
-                if not pdf_to_process:
-                    raise MinerUParserError("无法处理文件，转换为PDF失败")
-            # 处理文件路径
-            else:
-                file_path = filename_or_binary
-                
-                # 检查本地文件是否存在
-                if not os.path.exists(file_path):
-                    raise FileNotFoundError(f"文件未找到: {file_path}")
-                
-                if callback:
-                    callback(prog=0.1, msg="文件路径检查完成")
-                
-                # 尝试转换为PDF（如果需要）
-                pdf_to_process, temp_pdf_to_delete = ensure_pdf(file_path, temp_dir, callback, self.s3_config)
-                
-                if not pdf_to_process:
-                    raise MinerUParserError(f"无法处理文件: {file_path}，转换为PDF失败")
-            
-            # 解析 PDF 文件
-            if callback:
-                callback(prog=0.2, msg="开始解析PDF文件")
-                
-            # 确保kb_id和doc_id被传递给parse方法
-            documents = self.parse(pdf_to_process, kb_id, doc_id)
-            
-            if callback:
-                callback(prog=0.8, msg="PDF解析完成")
-            
-            # 提取文档块和表格
-            sections = []
-            tables = []
-            
-            for doc in documents:
-                # 添加文档块
-                sections.append({
-                    "text": doc["page_content"],
-                    "metadata": doc["metadata"]
-                })
-            
-            if callback:
-                callback(prog=0.9, msg="文档处理完成")
-                
-            logger.info(f"MinerUParser.__call__ 返回 {len(sections)} 个文档块和 {len(tables)} 个表格")
-            return sections, tables
-            
-        except FileNotFoundError as e:
-            logger.error(f"MinerUParser.__call__ 失败: {str(e)}")
-            raise  # 直接重新抛出 FileNotFoundError
+            return re.sub(r'!\[(?:图片)?\]\((.*?)\)', _replace_img, markdown_content)
         except Exception as e:
-            logger.error(f"MinerUParser.__call__ 失败: {str(e)}")
-            raise
-        finally:
-            # 清理临时文件和目录
-            if temp_file_path and os.path.exists(temp_file_path):
+            logger.error(f"更新图片链接失败: {str(e)}")
+            return markdown_content
+
+    def _cleanup_temp_files(self, *files):
+        """清理临时文件。"""
+        for file_path in files:
+            if file_path and os.path.exists(file_path):
                 try:
-                    os.unlink(temp_file_path)
-                except:
-                    pass
-            
-            # 清理转换后的PDF文件
-            if temp_pdf_to_delete and temp_pdf_to_delete != temp_file_path and os.path.exists(temp_pdf_to_delete):
-                try:
-                    os.unlink(temp_pdf_to_delete)
-                except:
-                    pass
-            
-            # 删除临时目录
+                    os.unlink(file_path)
+                except Exception as e:
+                    logger.warning(f"删除临时文件失败: {str(e)}")
+
+    def _cleanup_temp_dir(self, temp_dir):
+        """清理临时目录。"""
+        if temp_dir and os.path.exists(temp_dir):
             try:
                 import shutil
                 shutil.rmtree(temp_dir, ignore_errors=True)
-            except:
-                pass 
+            except Exception as e:
+                logger.warning(f"删除临时目录失败: {str(e)}") 
+
+    def _save_binary_to_temp(self, binary, temp_dir):
+        """将二进制内容保存到临时文件。
+        
+        参数:
+            binary: 二进制内容
+            temp_dir: 临时目录
+            
+        返回:
+            str: 临时文件路径
+        """
+        # 根据二进制内容特征判断文件类型
+        ext = '.pdf' if binary.startswith(b'%PDF') else '.bin'
+        temp_file_path = os.path.join(temp_dir, f"temp_file{ext}")
+        
+        # 保存二进制内容到临时文件
+        with open(temp_file_path, 'wb') as f:
+            f.write(binary)
+            
+        logger.info(f"已保存二进制内容到临时文件: {temp_file_path}")
+        return temp_file_path
+
+
+# 测试代码
+if __name__ == "__main__":
+    import os
+    import time
+    
+    # 配置日志
+    logging.basicConfig(level=logging.INFO)
+    
+    # 简单的回调函数，只打印消息
+    def print_msg(prog=0, msg="No message"):
+        print(f"[{prog*100:.1f}%] {msg}")
+
+    # 初始化解析器并调用
+    parser = MinerUParser()
+    print(f"初始化解析器完成，API URL: {parser.api_url}")
+    
+    # 确定测试文件路径 - 使用正确的路径格式和绝对路径
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    test_file = os.path.join(current_dir, "demo.doc")
+    test_file = os.path.abspath(test_file)  # 确保是绝对路径
+    
+    # 检查文件是否存在
+    if not os.path.exists(test_file):
+        print(f"错误: 测试文件不存在 - {test_file}")
+        print(f"当前工作目录: {os.getcwd()}")
+        # 列出当前目录内容帮助调试
+        print("当前目录内容:")
+        try:
+            for item in os.listdir(current_dir):
+                print(f"  - {item}")
+        except Exception as e:
+            print(f"无法列出目录内容: {str(e)}")
+        import sys
+        sys.exit(1)
+    
+    # 显示文件信息
+    file_size = os.path.getsize(test_file) / 1024
+    print(f"开始解析文件: {test_file} (大小: {file_size:.2f} KB)")
+    start_time = time.time()
+    
+    # 解析文件
+    try:
+        sections, tables = parser(
+            filename_or_binary=test_file, 
+            callback=print_msg
+        )
+        
+        # 打印解析结果摘要
+        elapsed = time.time() - start_time
+        print(f"\n解析完成，耗时: {elapsed:.2f} 秒，得到 {len(sections)} 个文本块")
+        
+        # 验证文件是否仍然存在
+        if os.path.exists(test_file):
+            print(f"文件完好: {test_file} 仍然存在")
+        else:
+            print(f"警告: 文件 {test_file} 已被删除!")
+            
+        if sections:
+            preview_text = sections[0]['text'][:200] + "..." if len(sections[0]['text']) > 200 else sections[0]['text']
+            print(f"第一个文本块内容预览:\n{preview_text}")
+    except Exception as e:
+        print(f"解析失败: {str(e)}")
+        import traceback
+        traceback.print_exc()

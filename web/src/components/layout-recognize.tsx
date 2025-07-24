@@ -40,7 +40,7 @@ const LayoutRecognize = () => {
     <Form.Item
       name={['parser_config', 'layout_recognize']}
       label={t('layoutRecognize')}
-      initialValue={LayoutRecognizeType.DeepDOC}
+      initialValue={LayoutRecognizeType.MinerU}
       tooltip={t('layoutRecognizeTip')}
     >
       <Select options={options} popupMatchSelectWidth={false} />

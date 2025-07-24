@@ -212,13 +212,21 @@ export default {
       permissions: '权限',
       embeddingModel: '嵌入模型',
       chunkTokenNumber: '建议文本块大小',
-      chunkTokenNumberMessage: '块Token数是必填项',
+      maxChunkTokenNumber: '最大块大小',
+      minChunkTokenNumber: '最小块大小',
+      chunkTokenNumberMessage: '最大块Token数是必填项',
+      minChunkTokenNumberMessage: '最小块Token数是必填项',
+      maxChunkTokenNumberMessage: '最大块Token数是必填项',
       embeddingModelTip:
         '知识库采用的默认嵌入模型。 一旦知识库内已经产生了文本块后，你将无法更改默认的嵌入模型，除非删除知识库内的所有文本块。',
       permissionsTip:
         '如果把知识库权限设为“团队”，则所有团队成员都可以操作该知识库。',
       chunkTokenNumberTip:
         '建议的生成文本块的 token 数阈值。如果切分得到的小文本段 token 数达不到这一阈值就会不断与之后的文本段合并，直至再合并下一个文本段会超过这一阈值为止，此时产生一个最终文本块。如果系统在切分文本段时始终没有遇到文本分段标识符，即便文本段 token 数已经超过这一阈值，系统也不会生成新文本块。',
+      minChunkTokenNumberTip:
+        '最小块大小。如果切分得到的小文本段 token 数小于最小块大小，则系统会不断与之后的文本段合并，直至再合并下一个文本段会超过最小块大小为止，此时产生一个最终文本块。',
+      maxChunkTokenNumberTip:
+        '最大块大小。如果切分得到的小文本段 token 数大于最大块大小，则系统会不断与之前的文本段合并，直至再合并下一个文本段会超过最大块大小为止，此时产生一个最终文本块。',
       chunkMethod: '切片方法',
       chunkMethodTip: '说明位于右侧。',
       upload: '上传',
@@ -335,12 +343,12 @@ export default {
 <p>在标签列中，标签之间使用英文逗号分隔。</p>
 <i>不符合上述规则的文本行将被忽略。</i>
 `,
-      hierarchical: `<p>仅支持<b>PDF解析器为MinerU情况，其他解析器不支持，MinerU解析器支持的文件格式为<b>PDF</b>、<b>PPTX</b>、<b>DOCX</b>、<b>TXT</b>、<b>MD</b>、<b>EML</b>、<b>JSON</b>、<b>IMAGE</b>、<b>EXCEL</b>、<b>XLSX</b>、<b>CSV/TXT</b>等MinerU解析器支持的文件格式。</b>。</p>
+      hierarchical: `MinerU解析器支持的文件格式为<b>PDF</b>、<b>PPTX</b>、<b>DOCX</b>、<b>TXT</b>、<b>MD</b>、<b>EML</b>、<b>JSON</b>、<b>IMAGE</b>、<b>EXCEL</b>、<b>XLSX</b>、<b>CSV/TXT</b>等MinerU解析器支持的文件格式。</b>。</p>
 <p>此方法使用标题层级（H1、H2、H3）作为主要分块边界，创建保持文档结构的较大分块。</p>
 <p>特性：</p>
 <ul>
 <li><b>标题驱动分块：</b>使用H1、H2、H3作为主要分块边界</li>
-<li><b>动态大小控制：</b>目标300-600个token，最大800个token，最小50个token</li>
+<li><b>动态大小控制：</b>目标300-600个token，最大2048个token，最小10个token</li>
 <li><b>智能分割：</b>在段落边界进一步分割过大的分块</li>
 <li><b>智能合并：</b>将过小的分块与相邻分块合并</li>
 <li><b>内容保护：</b>保持表格、代码块和公式的完整性</li>

@@ -215,12 +215,20 @@ export default {
       embeddingModel: 'Embedding model',
       chunkTokenNumber: 'Recommended chunk size',
       chunkTokenNumberMessage: 'Chunk token number for text is required',
+      maxChunkTokenNumber: 'Maximum chunk size',
+      minChunkTokenNumber: 'Minimum chunk size',
+      maxChunkTokenNumberMessage: 'Maximum chunk token number is required',
+      minChunkTokenNumberMessage: 'Minimum chunk token number is required',
       embeddingModelTip:
         'The default embedding model for the knowledge base. It cannot be changed once the knowledge base has chunks. To switch to a different default embedding model, you must delete all existing chunks in the knowledge base.',
       permissionsTip:
         "If it is set to 'Team', all your team members will be able to manage the knowledge base.",
       chunkTokenNumberTip:
         'It kind of sets the token threshold for a creating a chunk. A segment with fewer tokens than this threshold will be combined with the following segments until the token count exceeds the threshold, at which point a chunk is created. No new chunk is created unless a delimiter is encountered, even if the threshold is exceeded.',
+      maxChunkTokenNumberTip:
+        'Maximum chunk size. If a text segment has more tokens than this threshold, the system will continuously merge with previous segments until adding the next segment would exceed this maximum size, at which point a final text block is created.',
+      minChunkTokenNumberTip:
+        'Minimum chunk size. If a text segment has fewer tokens than this threshold, the system will continuously merge with subsequent segments until adding the next segment would exceed this minimum size, at which point a final text block is created.',
       chunkMethod: 'Chunking method',
       chunkMethodTip: 'View the tips on the right.',
       upload: 'Upload',
@@ -338,6 +346,19 @@ export default {
 <li><b>Context enhancement:</b> Adds contextual information for small chunks</li>
 </ul>
 <p>This method is ideal for structured Markdown documents where maintaining heading hierarchy is important.</p>
+`,
+      hierarchical: `<p>MinerU Parser supports file formats such as <b>PDF</b>, <b>PPTX</b>, <b>DOCX</b>, <b>TXT</b>, <b>MD</b>, <b>EML</b>, <b>JSON</b>, <b>IMAGE</b>, <b>EXCEL</b>, <b>XLSX</b>, <b>CSV/TXT</b>, and other formats supported by MinerU Parser.</p>
+<p>This method uses heading hierarchy (H1, H2, H3) as the primary chunking boundaries, creating larger chunks that preserve document structure.</p>
+<p>Features:</p>
+<ul>
+<li><b>Heading-driven chunking:</b> Uses H1, H2, H3 as main chunk boundaries</li>
+<li><b>Dynamic size control:</b> Target 300-600 tokens, max 2048 tokens, min 10 tokens</li>
+<li><b>Smart splitting:</b> Further splits oversized chunks at paragraph boundaries</li>
+<li><b>Smart merging:</b> Merges undersized chunks with adjacent ones</li>
+<li><b>Content protection:</b> Preserves integrity of tables, code blocks, and formulas</li>
+<li><b>Context enhancement:</b> Adds contextual information for small chunks</li>
+</ul>
+<p>This method is specifically designed for processing Markdown files extracted by MinerU, chunking them based on heading hierarchy while preserving document structure and context.</p>
 `,
       useRaptor: 'Use RAPTOR to enhance retrieval',
       useRaptorTip:

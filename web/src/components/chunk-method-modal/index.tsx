@@ -19,7 +19,8 @@ import omit from 'lodash/omit';
 import React, { useEffect, useMemo } from 'react';
 import { useFetchParserListOnMount, useShowAutoKeywords } from './hooks';
 
-import { DocumentParserType } from '@/constants/knowledge';
+import MaxMinTokenNumber from '@/components/max-min-token-number';
+import { DocumentParserType, LayoutRecognizeType } from '@/constants/knowledge';
 import { useTranslate } from '@/hooks/common-hooks';
 import { useFetchKnowledgeBaseConfiguration } from '@/hooks/knowledge-hooks';
 import { IParserConfig } from '@/interfaces/database/document';
@@ -73,14 +74,80 @@ const ChunkMethodModal: React.FC<IProps> = ({
   loading,
 }) => {
   const [form] = Form.useForm();
-  const { parserList, handleChange, selectedTag } = useFetchParserListOnMount(
-    documentId,
-    parserId,
-    documentExtension,
-    form,
-  );
+  const {
+    parserList: allParserList,
+    handleChange,
+    selectedTag,
+  } = useFetchParserListOnMount(documentId, parserId, documentExtension, form);
   const { t } = useTranslate('knowledgeDetails');
   const { data: knowledgeDetails } = useFetchKnowledgeBaseConfiguration();
+
+  // 监听布局识别类型
+  const layoutRecognize = Form.useWatch(
+    ['parser_config', 'layout_recognize'],
+    form,
+  );
+
+  // 根据布局识别类型过滤切片方法选项
+  const filteredParserList = useMemo(() => {
+    if (layoutRecognize === LayoutRecognizeType.MinerU) {
+      // MinerU布局只支持Hierarchical切片
+      return allParserList.filter(
+        (option) => option.value === DocumentParserType.Hierarchical,
+      );
+    } else {
+      // 其他布局不支持Hierarchical
+      return allParserList.filter(
+        (option) => option.value !== DocumentParserType.Hierarchical,
+      );
+    }
+  }, [allParserList, layoutRecognize]);
+
+  // 监听布局识别类型变化，自动设置对应的切片方法
+  useEffect(() => {
+    if (!layoutRecognize || !visible) return;
+
+    if (layoutRecognize === LayoutRecognizeType.MinerU) {
+      // MinerU布局时强制使用Hierarchical
+      if (selectedTag !== DocumentParserType.Hierarchical) {
+        handleChange(DocumentParserType.Hierarchical);
+      }
+    } else {
+      // 非MinerU布局时，如果当前是Hierarchical，切换到其他切片方法
+      if (selectedTag === DocumentParserType.Hierarchical) {
+        const nonHierarchicalOptions = allParserList.filter(
+          (option) => option.value !== DocumentParserType.Hierarchical,
+        );
+
+        if (nonHierarchicalOptions.length > 0) {
+          handleChange(nonHierarchicalOptions[0].value);
+        }
+      }
+    }
+  }, [layoutRecognize, selectedTag, handleChange, allParserList, visible]);
+
+  // 自定义handleTagChange函数，在切换切片方法时同步设置布局识别类型
+  const handleTagChange = (value: DocumentParserType) => {
+    handleChange(value);
+
+    // 如果选择Hierarchical，设置布局为MinerU
+    if (value === DocumentParserType.Hierarchical) {
+      form.setFieldValue(
+        ['parser_config', 'layout_recognize'],
+        LayoutRecognizeType.MinerU,
+      );
+    }
+    // 如果之前是Hierarchical切换到其他切片方法，且布局是MinerU，则重置布局
+    else if (
+      selectedTag === DocumentParserType.Hierarchical &&
+      layoutRecognize === LayoutRecognizeType.MinerU
+    ) {
+      form.setFieldValue(
+        ['parser_config', 'layout_recognize'],
+        LayoutRecognizeType.PlainText,
+      );
+    }
+  };
 
   const useGraphRag = useMemo(() => {
     return knowledgeDetails.parser_config?.graphrag?.use_graphrag;
@@ -112,8 +179,10 @@ const ChunkMethodModal: React.FC<IProps> = ({
 
   const showMaxTokenNumber =
     selectedTag === DocumentParserType.Naive ||
-    selectedTag === DocumentParserType.KnowledgeGraph ||
-    selectedTag === DocumentParserType.Hierarchical;
+    selectedTag === DocumentParserType.KnowledgeGraph;
+
+  // 添加MaxMinTokenNumber显示逻辑 - 使用正确的枚举值
+  const showMaxMinTokenNumber = selectedTag === DocumentParserType.Hierarchical;
 
   const showEntityTypes = selectedTag === DocumentParserType.KnowledgeGraph;
 
@@ -166,9 +235,9 @@ const ChunkMethodModal: React.FC<IProps> = ({
         <Form.Item label={t('chunkMethod')} className={styles.chunkMethod}>
           <Select
             style={{ width: 160 }}
-            onChange={handleChange}
+            onChange={handleTagChange}
             value={selectedTag}
-            options={parserList}
+            options={filteredParserList}
           />
         </Form.Item>
       </Space>
@@ -309,7 +378,9 @@ const ChunkMethodModal: React.FC<IProps> = ({
             }
           </Form.Item>
         )}
-        <DatasetConfigurationContainer show={showOne || showMaxTokenNumber}>
+        <DatasetConfigurationContainer
+          show={showOne || showMaxTokenNumber || showMaxMinTokenNumber}
+        >
           {showOne && <LayoutRecognize></LayoutRecognize>}
           {showMaxTokenNumber && (
             <>
@@ -323,6 +394,7 @@ const ChunkMethodModal: React.FC<IProps> = ({
               <Delimiter></Delimiter>
             </>
           )}
+          {showMaxMinTokenNumber && <MaxMinTokenNumber />}
         </DatasetConfigurationContainer>
         <DatasetConfigurationContainer
           show={showAutoKeywords(selectedTag) || showExcelToHtml}
