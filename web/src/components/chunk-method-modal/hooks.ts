@@ -32,6 +32,7 @@ const ParserListMap = new Map([
       DocumentParserType.Qa,
       DocumentParserType.Manual,
       DocumentParserType.KnowledgeGraph,
+      DocumentParserType.Hierarchical,
     ],
   ],
   [
@@ -42,9 +43,13 @@ const ParserListMap = new Map([
       DocumentParserType.Table,
       DocumentParserType.One,
       DocumentParserType.KnowledgeGraph,
+      DocumentParserType.Hierarchical,
     ],
   ],
-  [['ppt', 'pptx'], [DocumentParserType.Presentation]],
+  [
+    ['ppt', 'pptx'],
+    [DocumentParserType.Presentation, DocumentParserType.Hierarchical],
+  ],
   [
     ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'tif', 'tiff', 'webp', 'svg', 'ico'],
     [DocumentParserType.Picture],
@@ -60,6 +65,7 @@ const ParserListMap = new Map([
       DocumentParserType.Qa,
       DocumentParserType.Table,
       DocumentParserType.KnowledgeGraph,
+      DocumentParserType.Hierarchical,
     ],
   ],
   [
@@ -73,6 +79,7 @@ const ParserListMap = new Map([
       DocumentParserType.Qa,
       DocumentParserType.Table,
       DocumentParserType.KnowledgeGraph,
+      DocumentParserType.Hierarchical,
     ],
   ],
   [
@@ -82,10 +89,18 @@ const ParserListMap = new Map([
       DocumentParserType.Qa,
       DocumentParserType.KnowledgeGraph,
       DocumentParserType.Hierarchical,
+      DocumentParserType.Hierarchical,
     ],
   ],
-  [['json'], [DocumentParserType.Naive, DocumentParserType.KnowledgeGraph]],
-  [['eml'], [DocumentParserType.Email]],
+  [
+    ['json'],
+    [
+      DocumentParserType.Naive,
+      DocumentParserType.KnowledgeGraph,
+      DocumentParserType.Hierarchical,
+    ],
+  ],
+  [['eml'], [DocumentParserType.Email, DocumentParserType.Hierarchical]],
 ]);
 
 const getParserList = (
@@ -126,6 +141,7 @@ export const useFetchParserListOnMount = (
         DocumentParserType.One,
         DocumentParserType.Qa,
         DocumentParserType.Table,
+        DocumentParserType.Hierarchical,
       ],
       parserList,
     );

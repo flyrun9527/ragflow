@@ -82,7 +82,7 @@ const ChunkMethodModal: React.FC<IProps> = ({
   const { t } = useTranslate('knowledgeDetails');
   const { data: knowledgeDetails } = useFetchKnowledgeBaseConfiguration();
 
-  // 监听布局识别类型
+  // 监听布局识别类型 - 只使用Form.useWatch，不使用state
   const layoutRecognize = Form.useWatch(
     ['parser_config', 'layout_recognize'],
     form,
@@ -90,62 +90,67 @@ const ChunkMethodModal: React.FC<IProps> = ({
 
   // 根据布局识别类型过滤切片方法选项
   const filteredParserList = useMemo(() => {
-    if (layoutRecognize === LayoutRecognizeType.MinerU) {
+    // 注意：即使 layoutRecognize 为 null/undefined，当前选择的切片方法是 Hierarchical 时也应该显示
+    const isHierarchical = selectedTag === DocumentParserType.Hierarchical;
+
+    if (layoutRecognize === LayoutRecognizeType.MinerU || isHierarchical) {
       // MinerU布局只支持Hierarchical切片
-      return allParserList.filter(
+      // 确保即使列表为空也返回Hierarchical选项
+      const hierarchicalOption = allParserList.find(
         (option) => option.value === DocumentParserType.Hierarchical,
       );
+
+      // 如果找到了Hierarchical选项，返回它；否则返回空数组
+      return hierarchicalOption ? [hierarchicalOption] : [];
     } else {
       // 其他布局不支持Hierarchical
       return allParserList.filter(
         (option) => option.value !== DocumentParserType.Hierarchical,
       );
     }
-  }, [allParserList, layoutRecognize]);
+  }, [allParserList, layoutRecognize, selectedTag]);
 
   // 监听布局识别类型变化，自动设置对应的切片方法
   useEffect(() => {
-    if (!layoutRecognize || !visible) return;
+    // 只有在对话框可见且布局识别类型有值时才执行逻辑
+    if (!visible || !layoutRecognize) return;
 
-    if (layoutRecognize === LayoutRecognizeType.MinerU) {
-      // MinerU布局时强制使用Hierarchical
-      if (selectedTag !== DocumentParserType.Hierarchical) {
-        handleChange(DocumentParserType.Hierarchical);
-      }
-    } else {
-      // 非MinerU布局时，如果当前是Hierarchical，切换到其他切片方法
-      if (selectedTag === DocumentParserType.Hierarchical) {
-        const nonHierarchicalOptions = allParserList.filter(
-          (option) => option.value !== DocumentParserType.Hierarchical,
-        );
+    // 简化逻辑：布局和切片方法的一致性检查
+    if (
+      layoutRecognize === LayoutRecognizeType.MinerU &&
+      selectedTag !== DocumentParserType.Hierarchical
+    ) {
+      // MinerU布局必须使用Hierarchical切片方法
+      setTimeout(() => handleChange(DocumentParserType.Hierarchical), 0);
+    } else if (
+      layoutRecognize !== LayoutRecognizeType.MinerU &&
+      selectedTag === DocumentParserType.Hierarchical
+    ) {
+      // Hierarchical切片方法只能用于MinerU布局
+      // 找到第一个非Hierarchical选项
+      const firstNonHierarchical = allParserList.find(
+        (option) => option.value !== DocumentParserType.Hierarchical,
+      );
 
-        if (nonHierarchicalOptions.length > 0) {
-          handleChange(nonHierarchicalOptions[0].value);
-        }
+      if (firstNonHierarchical) {
+        setTimeout(() => handleChange(firstNonHierarchical.value), 0);
       }
     }
   }, [layoutRecognize, selectedTag, handleChange, allParserList, visible]);
 
   // 自定义handleTagChange函数，在切换切片方法时同步设置布局识别类型
   const handleTagChange = (value: DocumentParserType) => {
+    // 先更新切片方法
     handleChange(value);
 
-    // 如果选择Hierarchical，设置布局为MinerU
+    // 只有在选择Hierarchical时需要设置布局为MinerU
     if (value === DocumentParserType.Hierarchical) {
-      form.setFieldValue(
-        ['parser_config', 'layout_recognize'],
-        LayoutRecognizeType.MinerU,
-      );
-    }
-    // 如果之前是Hierarchical切换到其他切片方法，且布局是MinerU，则重置布局
-    else if (
-      selectedTag === DocumentParserType.Hierarchical &&
-      layoutRecognize === LayoutRecognizeType.MinerU
-    ) {
-      form.setFieldValue(
-        ['parser_config', 'layout_recognize'],
-        LayoutRecognizeType.PlainText,
-      );
+      setTimeout(() => {
+        form.setFieldValue(
+          ['parser_config', 'layout_recognize'],
+          LayoutRecognizeType.MinerU,
+        );
+      }, 0);
     }
   };
 
@@ -165,25 +170,21 @@ const ChunkMethodModal: React.FC<IProps> = ({
   const isPdf = documentExtension === 'pdf';
 
   const showPages = useMemo(() => {
-    // 只有选择了MinerU布局时才忽略PDF限制
-    const isMinerULayout = layoutRecognize === LayoutRecognizeType.MinerU;
-    return (
-      (isMinerULayout || isPdf) &&
-      hidePagesChunkMethods.every((x) => x !== selectedTag)
-    );
-  }, [selectedTag, isPdf, layoutRecognize]);
+    // 简化判断逻辑
+    const isPdfOrHierarchical =
+      isPdf || selectedTag === DocumentParserType.Hierarchical;
 
-  const showOne = useMemo(() => {
-    // 只有选择了MinerU布局时才忽略PDF限制
-    const isMinerULayout = layoutRecognize === LayoutRecognizeType.MinerU;
+    // 不在隐藏列表中的PDF或Hierarchical切片方法需要显示页面范围
+    // 确保selectedTag有值且不在隐藏列表中
     return (
-      // 对MinerU布局不做文件类型限制，其他情况保持原来的PDF限制
-      (isMinerULayout || isPdf) &&
-      hidePagesChunkMethods
-        .filter((x) => x !== DocumentParserType.One)
-        .every((x) => x !== selectedTag)
+      isPdfOrHierarchical &&
+      selectedTag &&
+      !hidePagesChunkMethods.includes(selectedTag)
     );
-  }, [selectedTag, isPdf, layoutRecognize]);
+  }, [selectedTag, isPdf]);
+
+  // 简化为常量，不需要useMemo，始终显示布局识别器选项
+  const showOne = true;
 
   const showMaxTokenNumber =
     selectedTag === DocumentParserType.Naive ||

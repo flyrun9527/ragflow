@@ -451,7 +451,13 @@ class MinerUParser:
             
         finally:
             # 4. 清理临时目录
-            self._cleanup_temp_dir(temp_dir=temp_base_dir)
+            try:
+                import shutil
+                if os.path.exists(temp_base_dir):
+                    shutil.rmtree(temp_base_dir, ignore_errors=True)
+                    logger.debug(f"已清理临时图片目录: {temp_base_dir}")
+            except OSError as e:
+                logger.warning(f"清理临时图片目录失败: {temp_base_dir}, 错误: {e}")
 
     def _save_images(self, images, images_dir):
         """保存图片到临时目录。"""
