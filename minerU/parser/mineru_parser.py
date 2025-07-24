@@ -202,59 +202,20 @@ class MinerUParser:
             if os.path.exists(temp_dir):
                 logger.warning(f"临时目录未被删除: {temp_dir}")
 
-    def _prepare_file(self, filename_or_binary, binary, kb_id, doc_id, callback, temp_dir=None):
-        """准备需要解析的文件，根据不同的输入源获取原始文件。
+    def _get_file_from_minio(self, kb_id, doc_id, temp_dir):
+        """从MinIO读取文件。
         
         参数:
-            filename_or_binary: 文件名或二进制内容的标识符
-            binary: 二进制内容（如果有）
             kb_id: 知识库ID
             doc_id: 文档ID
-            callback: 进度回调函数
-            temp_dir: 临时文件存储目录
+            temp_dir: 临时目录
             
         返回:
-            str: 源文件的路径（可能是临时文件）
+            str: 临时文件路径
             
         异常:
-            MinerUParserError: 当文件准备失败时抛出
-            FileNotFoundError: 当本地文件不存在时抛出
+            MinerUParserError: 读取失败时抛出
         """
-        
-        try:
-            source_file_path = None
-            
-            # 情况1: 从MinIO存储获取文件
-            if kb_id and doc_id:
-                if callback:
-                    callback(prog=0.05, msg="从MinIO获取文件")
-                source_file_path = self._get_file_from_minio(kb_id=kb_id, doc_id=doc_id, temp_dir=temp_dir)
-                
-            # 情况2: 处理二进制内容
-            elif binary is not None:
-                if callback:
-                    callback(prog=0.05, msg="处理二进制内容")
-                source_file_path = self._process_binary(binary=binary, temp_dir=temp_dir)
-                
-            # 情况3: 处理本地文件
-            else:
-                if callback:
-                    callback(prog=0.05, msg="处理本地文件")
-                source_file_path = self._process_local_file(file_path=filename_or_binary, temp_dir=temp_dir)
-            
-            if callback:
-                callback(prog=0.1, msg="文件准备完成")
-                
-            return source_file_path
-            
-        except Exception as e:
-            logger.error(f"准备文件失败: {str(e)}")
-            if temp_dir and os.path.exists(temp_dir):
-                self._cleanup_temp_dir(temp_dir)
-            raise
-
-    def _get_file_from_minio(self, kb_id, doc_id, temp_dir):
-        """从MinIO读取文件。"""
         try:
             from rag.utils.storage_factory import STORAGE_IMPL
             from api.db.services.file2document_service import File2DocumentService
@@ -279,46 +240,12 @@ class MinerUParser:
             with open(temp_file_path, 'wb') as f:
                 f.write(file_bytes)
             
-            # 转换为PDF（如需要）
-            if ext.lower() != '.pdf':
-                pdf_path, _ = ensure_pdf(temp_file_path, temp_dir)
-                return pdf_path
-            
+            logger.info(f"已从MinIO读取文件到: {temp_file_path}")
             return temp_file_path
             
         except Exception as e:
             logger.error(f"从MinIO读取文件失败: {str(e)}")
             raise MinerUParserError(f"从MinIO读取文件失败: {str(e)}")
-
-    def _process_binary(self, binary, temp_dir):
-        """处理二进制内容。"""
-        # 保存二进制内容
-        ext = '.pdf' if binary.startswith(b'%PDF') else '.bin'
-        temp_file_path = os.path.join(temp_dir, f"temp_file{ext}")
-        
-        with open(temp_file_path, 'wb') as f:
-            f.write(binary)
-        
-        # 转换为PDF（如需要）
-        pdf_path, _ = ensure_pdf(temp_file_path, temp_dir)
-        if not pdf_path:
-            raise MinerUParserError("无法将二进制内容转换为PDF")
-        
-        return pdf_path
-
-    def _process_local_file(self, file_path, temp_dir):
-        """处理本地文件。
-        
-        对于本地文件，不应创建临时副本，直接处理原始文件。
-        只有在文件格式转换时才会创建临时文件。
-        """
-        if not os.path.exists(file_path):
-            raise FileNotFoundError(f"文件未找到: {file_path}")
-            
-        # 如果文件已经是PDF格式，直接返回原始路径
-        # 如果需要转换，ensure_pdf会返回转换后的文件路径
-        # 这样确保了原始文件不会被修改或删除
-        return file_path
 
     def _parse_pdf(self, pdf_path, kb_id, doc_id):
         """解析PDF文件，提取内容并转换为文档对象。
@@ -615,24 +542,6 @@ class MinerUParser:
         except Exception as e:
             logger.error(f"更新图片链接失败: {str(e)}")
             return markdown_content
-
-    def _cleanup_temp_files(self, *files):
-        """清理临时文件。"""
-        for file_path in files:
-            if file_path and os.path.exists(file_path):
-                try:
-                    os.unlink(file_path)
-                except Exception as e:
-                    logger.warning(f"删除临时文件失败: {str(e)}")
-
-    def _cleanup_temp_dir(self, temp_dir):
-        """清理临时目录。"""
-        if temp_dir and os.path.exists(temp_dir):
-            try:
-                import shutil
-                shutil.rmtree(temp_dir, ignore_errors=True)
-            except Exception as e:
-                logger.warning(f"删除临时目录失败: {str(e)}") 
 
     def _save_binary_to_temp(self, binary, temp_dir):
         """将二进制内容保存到临时文件。
