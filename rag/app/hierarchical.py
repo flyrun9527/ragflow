@@ -55,10 +55,54 @@ def chunk(filename: str = None, binary=None, **kwargs) -> List[Dict[str, Any]]:
         content = None
         
         # 检查是否使用 MinerU 解析器
-        layout_recognize = kwargs.get("parser_config", {}).get("layout_recognize", "DeepDOC")
+        layout_recognize = kwargs.get("parser_config", {}).get("layout_recognize", "MinerU")
         logging.info(f"hierarchical.chunk: layout_recognize={layout_recognize}")
         
-        if filename and re.search(r"\.pdf$", filename, re.IGNORECASE):
+        # 优先检查是否使用 MinerU 解析器，不受文件类型限制
+        if layout_recognize == "MinerU":
+            logging.info(f"使用 MinerU 解析器处理文件: {filename}")
+            try:
+                logging.info("尝试导入 MinerU 解析器")
+                from minerU.parser import MinerUParser
+                pdf_parser = MinerUParser()
+                logging.info("成功导入并初始化 MinerU 解析器")
+                
+                # 调用 MinerU 解析器
+                logging.info(f"调用 MinerU 解析器处理文件: {filename}")
+                try:
+                    sections, tbls = pdf_parser(filename if not binary else binary, binary=binary,
+                                              from_page=kwargs.get('from_page', 0), to_page=kwargs.get('to_page', 1000), 
+                                              callback=kwargs.get('callback', None), 
+                                              kb_id=kwargs.get('kb_id'), doc_id=kwargs.get('doc_id'))
+                    logging.info(f"MinerU 解析器返回结果: {len(sections)} 个文档块, {len(tbls)} 个表格")
+                    
+                    # 检查解析结果
+                    if sections:
+                        sample = sections[0]
+                        logging.info(f"MinerU 解析结果示例: {sample}")
+                        
+                        # 将 sections 转换为文本内容
+                        content = "\n\n".join([section.get('text', '') for section in sections if section.get('text')])
+                        logging.info(f"MinerU 解析完成，提取文本长度: {len(content)}")
+                    else:
+                        logging.error("MinerU 解析器返回空结果")
+                        raise Exception("MinerU 服务异常：解析器返回空结果")
+                except Exception as e:
+                    # 改进错误处理
+                    error_msg = str(e)
+                    logging.error(f"调用 MinerU 解析器失败: {error_msg}")
+                    
+                    # 特殊处理RetryError
+                    if "RetryError" in error_msg and "ValueError" in error_msg:
+                        logging.error("检测到JSON解析错误，MinerU服务可能返回了无效响应")
+                        raise Exception("MinerU 服务返回了无效的响应格式，请检查服务是否正常运行")
+                    else:
+                        raise Exception(f"MinerU 服务异常: {error_msg}")
+            except ImportError as e:
+                logging.error(f"导入 MinerU 解析器失败: {str(e)}")
+                raise Exception(f"MinerU 解析器导入失败: {str(e)}")
+        # 如果不是MinerU解析器，根据文件类型判断
+        elif filename and re.search(r"\.pdf$", filename, re.IGNORECASE):
             logging.info("处理 PDF 文件")
             
             if layout_recognize == "Plain Text":
@@ -86,48 +130,7 @@ def chunk(filename: str = None, binary=None, **kwargs) -> List[Dict[str, Any]]:
                 content = "\n\n".join([section[0] for section in sections if section[0]])
                 logging.info(f"Plain Text 解析完成，提取文本长度: {len(content)}")
                 
-            elif layout_recognize == "MinerU":
-                # 尝试导入 MinerU 解析器
-                try:
-                    logging.info("尝试导入 MinerU 解析器")
-                    from minerU.parser import MinerUParser
-                    pdf_parser = MinerUParser()
-                    logging.info("成功导入并初始化 MinerU 解析器")
-                    
-                    # 调用 MinerU 解析器
-                    logging.info(f"调用 MinerU 解析器处理文件: {filename}")
-                    try:
-                        sections, tbls = pdf_parser(filename if not binary else binary, binary=binary,
-                                                  from_page=kwargs.get('from_page', 0), to_page=kwargs.get('to_page', 1000), 
-                                                  callback=kwargs.get('callback', None), 
-                                                  kb_id=kwargs.get('kb_id'), doc_id=kwargs.get('doc_id'))
-                        logging.info(f"MinerU 解析器返回结果: {len(sections)} 个文档块, {len(tbls)} 个表格")
-                        
-                        # 检查解析结果
-                        if sections:
-                            sample = sections[0]
-                            logging.info(f"MinerU 解析结果示例: {sample}")
-                            
-                            # 将 sections 转换为文本内容
-                            content = "\n\n".join([section.get('text', '') for section in sections if section.get('text')])
-                            logging.info(f"MinerU 解析完成，提取文本长度: {len(content)}")
-                        else:
-                            logging.error("MinerU 解析器返回空结果")
-                            raise Exception("MinerU 服务异常：解析器返回空结果")
-                    except Exception as e:
-                        # 改进错误处理
-                        error_msg = str(e)
-                        logging.error(f"调用 MinerU 解析器失败: {error_msg}")
-                        
-                        # 特殊处理RetryError
-                        if "RetryError" in error_msg and "ValueError" in error_msg:
-                            logging.error("检测到JSON解析错误，MinerU服务可能返回了无效响应")
-                            raise Exception("MinerU 服务返回了无效的响应格式，请检查服务是否正常运行")
-                        else:
-                            raise Exception(f"MinerU 服务异常: {error_msg}")
-                except ImportError as e:
-                    logging.error(f"导入 MinerU 解析器失败: {str(e)}")
-                    raise Exception(f"MinerU 解析器导入失败: {str(e)}")
+            # MinerU 解析器已在上面单独处理，不在此处重复
             else:
                 logging.info(f"使用默认解析器: {layout_recognize}")
                 pdf_parser = Pdf()

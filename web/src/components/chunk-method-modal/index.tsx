@@ -165,17 +165,25 @@ const ChunkMethodModal: React.FC<IProps> = ({
   const isPdf = documentExtension === 'pdf';
 
   const showPages = useMemo(() => {
-    return isPdf && hidePagesChunkMethods.every((x) => x !== selectedTag);
-  }, [selectedTag, isPdf]);
+    // 只有选择了MinerU布局时才忽略PDF限制
+    const isMinerULayout = layoutRecognize === LayoutRecognizeType.MinerU;
+    return (
+      (isMinerULayout || isPdf) &&
+      hidePagesChunkMethods.every((x) => x !== selectedTag)
+    );
+  }, [selectedTag, isPdf, layoutRecognize]);
 
   const showOne = useMemo(() => {
+    // 只有选择了MinerU布局时才忽略PDF限制
+    const isMinerULayout = layoutRecognize === LayoutRecognizeType.MinerU;
     return (
-      isPdf &&
+      // 对MinerU布局不做文件类型限制，其他情况保持原来的PDF限制
+      (isMinerULayout || isPdf) &&
       hidePagesChunkMethods
         .filter((x) => x !== DocumentParserType.One)
         .every((x) => x !== selectedTag)
     );
-  }, [selectedTag, isPdf]);
+  }, [selectedTag, isPdf, layoutRecognize]);
 
   const showMaxTokenNumber =
     selectedTag === DocumentParserType.Naive ||

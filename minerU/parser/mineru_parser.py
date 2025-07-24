@@ -97,7 +97,9 @@ class MinerUParser:
                 
             # 处理二进制内容
             if binary is not None:
-                source_file_path = self._save_binary_to_temp(binary, temp_dir)
+                # 传递原始文件名，便于提取扩展名
+                original_filename = filename_or_binary if isinstance(filename_or_binary, str) else None
+                source_file_path = self._save_binary_to_temp(binary, temp_dir, original_filename)
                 is_temp_source = True
                 
             # 处理MinIO存储的文件    
@@ -543,19 +545,60 @@ class MinerUParser:
             logger.error(f"更新图片链接失败: {str(e)}")
             return markdown_content
 
-    def _save_binary_to_temp(self, binary, temp_dir):
+    def _save_binary_to_temp(self, binary, temp_dir, original_filename=None):
         """将二进制内容保存到临时文件。
         
         参数:
             binary: 二进制内容
             temp_dir: 临时目录
+            original_filename: 原始文件名（可选），用于提取扩展名
             
         返回:
             str: 临时文件路径
         """
-        # 根据二进制内容特征判断文件类型
-        ext = '.pdf' if binary.startswith(b'%PDF') else '.bin'
-        temp_file_path = os.path.join(temp_dir, f"temp_file{ext}")
+        # 默认扩展名
+        ext = '.bin'
+        
+        # 1. 首先尝试从原始文件名中获取扩展名
+        if original_filename:
+            file_ext = os.path.splitext(original_filename)[1].lower()
+            if file_ext:
+                ext = file_ext
+                logger.info(f"使用原始文件名的扩展名: {ext}")
+        
+        # 2. 如果没有获取到扩展名，则通过二进制内容特征检测
+        if ext == '.bin':
+            logger.info("无法从文件名获取扩展名，尝试通过二进制内容特征检测")
+            # 检测常见文件类型的魔术字节
+            if binary.startswith(b'%PDF'):
+                ext = '.pdf'
+            elif binary.startswith(b'\xD0\xCF\x11\xE0'):  # MS Office 97-2003
+                ext = '.doc'  # 可能是doc/xls/ppt等
+            elif binary.startswith(b'PK\x03\x04'):  # ZIP文件，包括DOCX/XLSX/PPTX
+                # 检查更具体的Office Open XML标识
+                if b'word/' in binary[:4000]:
+                    ext = '.docx'
+                elif b'xl/' in binary[:4000]:
+                    ext = '.xlsx'
+                elif b'ppt/' in binary[:4000]:
+                    ext = '.pptx'
+                else:
+                    ext = '.zip'
+            logger.info(f"根据二进制内容特征检测文件类型: {ext}")
+        
+        # 生成临时文件名，如果有原始文件名，优先使用其基本名称
+        if original_filename:
+            base_name = os.path.splitext(os.path.basename(original_filename))[0]
+            # 替换特殊字符，防止文件名无效
+            base_name = re.sub(r'[<>:"/\\|?*]', '_', base_name)
+            # 限制长度
+            if len(base_name) > 50:
+                base_name = base_name[:50]
+            temp_file_name = f"{base_name}{ext}"
+        else:
+            temp_file_name = f"temp_file{ext}"
+            
+        temp_file_path = os.path.join(temp_dir, temp_file_name)
         
         # 保存二进制内容到临时文件
         with open(temp_file_path, 'wb') as f:
