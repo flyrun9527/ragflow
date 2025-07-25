@@ -16,10 +16,9 @@ import {
   Tooltip,
 } from 'antd';
 import omit from 'lodash/omit';
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { useFetchParserListOnMount, useShowAutoKeywords } from './hooks';
 
-import MaxMinTokenNumber from '@/components/max-min-token-number';
 import { DocumentParserType, LayoutRecognizeType } from '@/constants/knowledge';
 import { useTranslate } from '@/hooks/common-hooks';
 import { useFetchKnowledgeBaseConfiguration } from '@/hooks/knowledge-hooks';
@@ -32,6 +31,7 @@ import Delimiter from '../delimiter';
 import EntityTypesItem from '../entity-types-item';
 import ExcelToHtml from '../excel-to-html';
 import LayoutRecognize from '../layout-recognize';
+import MaxMinTokenNumber from '../max-min-token-number';
 import ParseConfiguration, {
   showRaptorParseConfiguration,
 } from '../parse-configuration';
@@ -74,34 +74,29 @@ const ChunkMethodModal: React.FC<IProps> = ({
   loading,
 }) => {
   const [form] = Form.useForm();
-  const {
-    parserList: allParserList,
-    handleChange,
-    selectedTag,
-  } = useFetchParserListOnMount(documentId, parserId, documentExtension, form);
+  const { parserList, handleChange, selectedTag } = useFetchParserListOnMount(
+    documentId,
+    parserId,
+    documentExtension,
+    form,
+  );
   const { t } = useTranslate('knowledgeDetails');
   const { data: knowledgeDetails } = useFetchKnowledgeBaseConfiguration();
 
-  // 监听布局识别类型 - 只使用Form.useWatch，不使用state
   const layoutRecognize = Form.useWatch(
     ['parser_config', 'layout_recognize'],
     form,
   );
 
+  // 用于跟踪表单是否已初始化完成
+  const initializedRef = useRef(false);
+
   // 根据布局识别类型过滤切片方法选项
   const filteredParserList = useMemo(() => {
-    // 注意：即使 layoutRecognize 为 null/undefined，当前选择的切片方法是 Hierarchical 或 StrictRegex 时也应该显示
-    const isHierarchical = selectedTag === DocumentParserType.Hierarchical;
-    const isStrictRegex = selectedTag === DocumentParserType.StrictRegex;
-
-    if (
-      layoutRecognize === LayoutRecognizeType.MinerU ||
-      isHierarchical ||
-      isStrictRegex
-    ) {
+    if (layoutRecognize === LayoutRecognizeType.MinerU) {
       // MinerU布局支持Hierarchical和StrictRegex切片方法
       // 查找并返回这两个选项
-      const supportedOptions = allParserList.filter(
+      const supportedOptions = parserList.filter(
         (option) =>
           option.value === DocumentParserType.Hierarchical ||
           option.value === DocumentParserType.StrictRegex,
@@ -109,64 +104,67 @@ const ChunkMethodModal: React.FC<IProps> = ({
 
       return supportedOptions.length > 0 ? supportedOptions : [];
     } else {
-      // 其他布局不支持Hierarchical
-      return allParserList.filter(
-        (option) => option.value !== DocumentParserType.Hierarchical,
-      );
-    }
-  }, [allParserList, layoutRecognize, selectedTag]);
-
-  // 监听布局识别类型变化，自动设置对应的切片方法
-  useEffect(() => {
-    // 只有在对话框可见且布局识别类型有值时才执行逻辑
-    if (!visible || !layoutRecognize) return;
-
-    // 简化逻辑：布局和切片方法的一致性检查
-    const isSupportedMethod =
-      selectedTag === DocumentParserType.Hierarchical ||
-      selectedTag === DocumentParserType.StrictRegex;
-
-    if (layoutRecognize === LayoutRecognizeType.MinerU && !isSupportedMethod) {
-      // MinerU布局默认使用Hierarchical切片方法
-      setTimeout(() => handleChange(DocumentParserType.Hierarchical), 0);
-    } else if (
-      layoutRecognize !== LayoutRecognizeType.MinerU &&
-      selectedTag === DocumentParserType.Hierarchical
-    ) {
-      // Hierarchical切片方法只能用于MinerU布局
-      // 找到第一个非Hierarchical/StrictRegex选项
-      const firstNonHierarchical = allParserList.find(
+      const supportedOptions = parserList.filter(
         (option) =>
           option.value !== DocumentParserType.Hierarchical &&
           option.value !== DocumentParserType.StrictRegex,
       );
 
-      if (firstNonHierarchical) {
-        setTimeout(() => handleChange(firstNonHierarchical.value), 0);
+      return supportedOptions;
+    }
+  }, [parserList, layoutRecognize]);
+
+  // 监听布局识别类型变化，并在变化时设置合适的切片方法
+  useEffect(() => {
+    // 如果表单尚未初始化完成，则不执行任何操作
+    if (!initializedRef.current || !layoutRecognize) {
+      return;
+    }
+
+    // 根据新的布局类型选择合适的切片方法
+    if (layoutRecognize === LayoutRecognizeType.MinerU) {
+      // 如果切换到MinerU，选择Hierarchical作为默认值（如果当前选择的不是支持的切片方法）
+      if (
+        selectedTag !== DocumentParserType.Hierarchical &&
+        selectedTag !== DocumentParserType.StrictRegex
+      ) {
+        const hierarchicalOption = filteredParserList.find(
+          (option) => option.value === DocumentParserType.Hierarchical,
+        );
+
+        if (hierarchicalOption) {
+          // 使用Hierarchical作为MinerU模式的默认切片方法
+          handleChange(hierarchicalOption.value);
+        }
+      }
+    } else {
+      // 如果从MinerU切换到其他类型，且当前选择的是Hierarchical或StrictRegex
+      if (
+        selectedTag === DocumentParserType.Hierarchical ||
+        selectedTag === DocumentParserType.StrictRegex
+      ) {
+        // 选择过滤后列表中的第一个选项
+        if (filteredParserList.length > 0) {
+          handleChange(filteredParserList[0].value);
+        }
       }
     }
-  }, [layoutRecognize, selectedTag, handleChange, allParserList, visible]);
+  }, [layoutRecognize, filteredParserList, selectedTag, handleChange]);
 
-  // 自定义handleTagChange函数，在切换切片方法时同步设置布局识别类型
-  const handleTagChange = (value: DocumentParserType) => {
-    // 先更新切片方法
-    handleChange(value);
-
-    // MinerU布局支持的切片方法
-    const isSupportedMethod =
-      value === DocumentParserType.Hierarchical ||
-      value === DocumentParserType.StrictRegex;
-
-    // 如果选择的是支持MinerU的方法，设置布局为MinerU
-    if (isSupportedMethod) {
-      setTimeout(() => {
-        form.setFieldValue(
-          ['parser_config', 'layout_recognize'],
-          LayoutRecognizeType.MinerU,
-        );
+  // 标记表单初始化完成
+  useEffect(() => {
+    if (visible) {
+      // 延迟一帧将初始化标记设为true
+      const timer = setTimeout(() => {
+        initializedRef.current = true;
       }, 0);
+
+      return () => clearTimeout(timer);
+    } else {
+      // 当模态框关闭时，重置初始化状态
+      initializedRef.current = false;
     }
-  };
+  }, [visible]);
 
   const useGraphRag = useMemo(() => {
     return knowledgeDetails.parser_config?.graphrag?.use_graphrag;
@@ -184,23 +182,23 @@ const ChunkMethodModal: React.FC<IProps> = ({
   const isPdf = documentExtension === 'pdf';
 
   const showPages = useMemo(() => {
-    // 简化判断逻辑
-    const isPdfOrSupportedMethod =
-      isPdf ||
-      selectedTag === DocumentParserType.Hierarchical ||
-      selectedTag === DocumentParserType.StrictRegex;
-
-    // 不在隐藏列表中的PDF或支持的切片方法需要显示页面范围
-    // 确保selectedTag有值且不在隐藏列表中
-    return (
-      isPdfOrSupportedMethod &&
-      selectedTag &&
-      !hidePagesChunkMethods.includes(selectedTag)
-    );
+    if (parserConfig?.layout_recognize === LayoutRecognizeType.MinerU) {
+      return true;
+    }
+    return isPdf && hidePagesChunkMethods.every((x) => x !== selectedTag);
   }, [selectedTag, isPdf]);
 
-  // 简化为常量，不需要useMemo，始终显示布局识别器选项
-  const showOne = true;
+  const showOne = useMemo(() => {
+    if (parserConfig?.layout_recognize === LayoutRecognizeType.MinerU) {
+      return true;
+    }
+    return (
+      isPdf &&
+      hidePagesChunkMethods
+        .filter((x) => x !== DocumentParserType.One)
+        .every((x) => x !== selectedTag)
+    );
+  }, [selectedTag, isPdf]);
 
   const showMaxTokenNumber =
     selectedTag === DocumentParserType.Naive ||
@@ -262,7 +260,7 @@ const ChunkMethodModal: React.FC<IProps> = ({
         <Form.Item label={t('chunkMethod')} className={styles.chunkMethod}>
           <Select
             style={{ width: 160 }}
-            onChange={handleTagChange}
+            onChange={handleChange}
             value={selectedTag}
             options={filteredParserList}
           />
