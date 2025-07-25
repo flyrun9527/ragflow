@@ -87,4 +87,5 @@ export enum DocumentParserType {
   Tag = 'tag',
   KnowledgeGraph = 'knowledge_graph',
   Hierarchical = 'hierarchical',
+  StrictRegex = 'strict_regex',
 }

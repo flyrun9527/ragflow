@@ -93,6 +93,7 @@ class ParserType(StrEnum):
     KG = "knowledge_graph"
     TAG = "tag"
     HIERARCHICAL = "hierarchical"
+    STRICT_REGEX = "strict_regex"
 
 
 class FileSource(StrEnum):

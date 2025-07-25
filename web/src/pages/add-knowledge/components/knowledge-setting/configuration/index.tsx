@@ -27,6 +27,7 @@ import { TableConfiguration } from './table';
 import { TagConfiguration } from './tag';
 
 import styles from '../index.less';
+import { StrictRegexConfiguration } from './strict-regex';
 
 const ConfigurationComponentMap = {
   [DocumentParserType.Naive]: NaiveConfiguration,
@@ -45,6 +46,7 @@ const ConfigurationComponentMap = {
   [DocumentParserType.Tag]: TagConfiguration,
   [DocumentParserType.KnowledgeGraph]: KnowledgeGraphConfiguration,
   [DocumentParserType.Hierarchical]: HierarchicalConfiguration,
+  [DocumentParserType.StrictRegex]: StrictRegexConfiguration,
 };
 
 function EmptyComponent() {

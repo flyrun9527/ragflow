@@ -16,6 +16,7 @@ const ParserListMap = new Map([
       'qa',
       'knowledge_graph',
       'hierarchical',
+      'strict_regex',
     ],
   ],
   [
@@ -29,16 +30,29 @@ const ParserListMap = new Map([
       'qa',
       'manual',
       'knowledge_graph',
+      'hierarchical',
+      'strict_regex',
     ],
   ],
   [
     ['xlsx', 'xls'],
-    ['naive', 'qa', 'table', 'one', 'knowledge_graph'],
+    [
+      'naive',
+      'qa',
+      'table',
+      'one',
+      'knowledge_graph',
+      'hierarchical',
+      'strict_regex',
+    ],
   ],
-  [['ppt', 'pptx'], ['presentation']],
+  [
+    ['ppt', 'pptx'],
+    ['presentation', 'hierarchical', 'strict_regex'],
+  ],
   [
     ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'tif', 'tiff', 'webp', 'svg', 'ico'],
-    ['picture'],
+    ['picture', 'hierarchical', 'strict_regex'],
   ],
   [
     ['txt'],
@@ -51,6 +65,8 @@ const ParserListMap = new Map([
       'qa',
       'table',
       'knowledge_graph',
+      'hierarchical',
+      'strict_regex',
     ],
   ],
   [
@@ -64,14 +80,16 @@ const ParserListMap = new Map([
       'qa',
       'table',
       'knowledge_graph',
+      'hierarchical',
+      'strict_regex',
     ],
   ],
   [
     ['md', 'mdx'],
-    ['naive', 'qa', 'knowledge_graph', 'hierarchical'],
+    ['naive', 'qa', 'knowledge_graph', 'hierarchical', 'strict_regex'],
   ],
-  [['json'], ['naive', 'knowledge_graph']],
-  [['eml'], ['email']],
+  [['json'], ['naive', 'knowledge_graph', 'hierarchical', 'strict_regex']],
+  [['eml'], ['email', 'hierarchical', 'strict_regex']],
 ]);
 
 const getParserList = (

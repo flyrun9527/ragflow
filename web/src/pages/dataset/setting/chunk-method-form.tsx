@@ -21,6 +21,7 @@ import { PictureConfiguration } from './configuration/picture';
 import { PresentationConfiguration } from './configuration/presentation';
 import { QAConfiguration } from './configuration/qa';
 import { ResumeConfiguration } from './configuration/resume';
+import { StrictRegexConfiguration } from './configuration/strict-regex';
 import { TableConfiguration } from './configuration/table';
 import { TagConfiguration } from './configuration/tag';
 
@@ -41,6 +42,7 @@ const ConfigurationComponentMap = {
   [DocumentParserType.Tag]: TagConfiguration,
   [DocumentParserType.KnowledgeGraph]: KnowledgeGraphConfiguration,
   [DocumentParserType.Hierarchical]: HierarchicalConfiguration,
+  [DocumentParserType.StrictRegex]: StrictRegexConfiguration,
 };
 
 function EmptyComponent() {

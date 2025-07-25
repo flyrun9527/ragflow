@@ -357,9 +357,27 @@ export default {
 <li><b>Smart merging:</b> Merges undersized chunks with adjacent ones</li>
 <li><b>Content protection:</b> Preserves integrity of tables, code blocks, and formulas</li>
 <li><b>Context enhancement:</b> Adds contextual information for small chunks</li>
+<li><b>Regex-based chunking:</b> Optional custom regex pattern for precise content splitting</li>
 </ul>
 <p>This method is specifically designed for processing Markdown files extracted by MinerU, chunking them based on heading hierarchy while preserving document structure and context.</p>
 `,
+      regexPattern: 'Regex Pattern',
+      regexPatternTip:
+        'Custom regex pattern for content splitting. When specified, the system will split content at positions matching this pattern.',
+      regexPatternPlaceholder: 'e.g., ^Article [0-9]+\\.',
+      regexPatternHint:
+        'The pattern will be applied to the beginning of lines. Use ^ to match start of line.',
+      regexPatternMessage: 'Regex pattern is required',
+      strictRegex: `<p>Supported file formats include <b>PDF</b>, <b>DOCX</b>, <b>TXT</b>, <b>MD</b>, and other text-based formats.</p>
+<p>This method uses custom regex patterns to split content at positions matching the pattern. It's particularly useful for structured documents like laws, regulations, or technical manuals that have consistent section headers.</p>
+<p>Features:</p>
+<ul>
+<li><b>Pattern-based chunking:</b> Uses custom regex pattern as the primary chunking boundary</li>
+<li><b>Line-by-line processing:</b> Applies pattern to the beginning of each line</li>
+<li><b>Dynamic size control:</b> Respects max and min token parameters for chunk size control</li>
+<li><b>Fallback mechanism:</b> Falls back to smart chunking if regex pattern fails or produces no matches</li>
+</ul>
+<p>This method is ideal for documents with well-defined section markers that can be matched with regular expressions.</p>`,
       useRaptor: 'Use RAPTOR to enhance retrieval',
       useRaptorTip:
         'Enable RAPTOR for multi-hop question-answering tasks. See https://ragflow.io/docs/dev/enable_raptor for details.',

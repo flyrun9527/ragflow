@@ -1,13 +1,25 @@
+import { DocumentParserType } from '@/constants/knowledge';
 import { useTranslate } from '@/hooks/common-hooks';
-import { Flex, Form, InputNumber, Slider } from 'antd';
+import { Flex, Form, Input, InputNumber, Slider } from 'antd';
 
 interface IProps {
   initialValue?: number;
   max?: number;
+  selectedTag?: DocumentParserType;
 }
 
-const MaxMinTokenNumber = ({ initialValue = 256, max = 2048 }: IProps) => {
+const MaxMinTokenNumber = ({
+  initialValue = 256,
+  max = 2048,
+  selectedTag,
+}: IProps) => {
   const { t } = useTranslate('knowledgeConfiguration');
+
+  // 判断是否显示正则表达式输入
+  const showRegexPattern = selectedTag === DocumentParserType.StrictRegex;
+
+  // 正则表达式的默认值
+  const defaultRegexPattern = '第[零一二三四五六七八九十百千万\\d]+条';
 
   return (
     <>
@@ -67,6 +79,25 @@ const MaxMinTokenNumber = ({ initialValue = 256, max = 2048 }: IProps) => {
           </Form.Item>
         </Flex>
       </Form.Item>
+
+      {/* 根据条件显示正则表达式输入 */}
+      {showRegexPattern && (
+        <Form.Item
+          initialValue={defaultRegexPattern}
+          name={['parser_config', 'regex_pattern']}
+          label={t('regexPattern')}
+          tooltip={t('regexPatternTip')}
+          rules={[
+            {
+              required: true,
+              message: t('regexPatternMessage') || 'Please input regex pattern',
+            },
+          ]}
+          help={t('regexPatternHint')}
+        >
+          <Input placeholder={t('regexPatternPlaceholder')} allowClear />
+        </Form.Item>
+      )}
     </>
   );
 };

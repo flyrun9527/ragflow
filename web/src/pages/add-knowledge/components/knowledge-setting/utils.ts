@@ -18,4 +18,5 @@ export const ImageMap = {
   knowledge_graph: getImageName('knowledge-graph', 2),
   tag: getImageName('tag', 2),
   hierarchical: getImageName('hierarchical', 2),
+  strict_regex: getImageName('strict-regex', 2),
 };

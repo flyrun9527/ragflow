@@ -45,11 +45,15 @@ export const ChunkMethodItem = memo(function ChunkMethodItem() {
     if (layoutRecognize === LayoutRecognizeType.MinerU) {
       // 只保留hierarchical选项
       return allParserList.filter(
-        (option) => option.value === DocumentParserType.Hierarchical,
+        (option) =>
+          option.value === DocumentParserType.Hierarchical ||
+          option.value === DocumentParserType.StrictRegex,
       );
     } else {
       return allParserList.filter(
-        (option) => option.value !== DocumentParserType.Hierarchical,
+        (option) =>
+          option.value !== DocumentParserType.Hierarchical &&
+          option.value !== DocumentParserType.StrictRegex,
       );
     }
   }, [allParserList, layoutRecognize]);
@@ -62,32 +66,35 @@ export const ChunkMethodItem = memo(function ChunkMethodItem() {
     // 获取当前值并记录，防止重复设置
     const currentParserId = form.getFieldValue('parser_id');
 
-    // 非MinerU时执行切换
-    if (layoutRecognize !== LayoutRecognizeType.MinerU) {
-      // 如果当前是hierarchical，需要切换
-      if (currentParserId === DocumentParserType.Hierarchical) {
-        // 直接从allParserList筛选，避免使用parserList导致的依赖循环
-        const nonHierarchicalOptions = allParserList.filter(
-          (option) => option.value !== DocumentParserType.Hierarchical,
-        );
-
-        // 如果有可用选项则设置第一个
-        if (nonHierarchicalOptions.length > 0) {
-          // 使用setTimeout避免React状态更新冲突
-          setTimeout(() => {
-            form.setFieldValue('parser_id', nonHierarchicalOptions[0].value);
-          }, 0);
-        }
-      }
-    } else if (layoutRecognize === LayoutRecognizeType.MinerU) {
-      // MinerU模式下，强制设置为hierarchical
-      if (currentParserId !== DocumentParserType.Hierarchical) {
+    if (layoutRecognize === LayoutRecognizeType.MinerU) {
+      if (
+        currentParserId === DocumentParserType.Hierarchical ||
+        currentParserId === DocumentParserType.StrictRegex
+      ) {
         setTimeout(() => {
-          form.setFieldValue('parser_id', DocumentParserType.Hierarchical);
+          form.setFieldValue('parser_id', currentParserId);
+        }, 0);
+      }
+    } else {
+      const nonHierarchicalOptions = allParserList.filter(
+        (option) =>
+          option.value !== DocumentParserType.Hierarchical &&
+          option.value !== DocumentParserType.StrictRegex,
+      );
+      if (
+        currentParserId === DocumentParserType.Hierarchical ||
+        currentParserId === DocumentParserType.StrictRegex
+      ) {
+        setTimeout(() => {
+          form.setFieldValue('parser_id', nonHierarchicalOptions[0].value);
+        }, 0);
+      } else {
+        setTimeout(() => {
+          form.setFieldValue('parser_id', currentParserId);
         }, 0);
       }
     }
-  }, [layoutRecognize, form, allParserList]); // 移除parserList依赖
+  }, [layoutRecognize, form, allParserList]);
 
   return (
     <Form.Item

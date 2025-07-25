@@ -90,18 +90,24 @@ const ChunkMethodModal: React.FC<IProps> = ({
 
   // 根据布局识别类型过滤切片方法选项
   const filteredParserList = useMemo(() => {
-    // 注意：即使 layoutRecognize 为 null/undefined，当前选择的切片方法是 Hierarchical 时也应该显示
+    // 注意：即使 layoutRecognize 为 null/undefined，当前选择的切片方法是 Hierarchical 或 StrictRegex 时也应该显示
     const isHierarchical = selectedTag === DocumentParserType.Hierarchical;
+    const isStrictRegex = selectedTag === DocumentParserType.StrictRegex;
 
-    if (layoutRecognize === LayoutRecognizeType.MinerU || isHierarchical) {
-      // MinerU布局只支持Hierarchical切片
-      // 确保即使列表为空也返回Hierarchical选项
-      const hierarchicalOption = allParserList.find(
-        (option) => option.value === DocumentParserType.Hierarchical,
+    if (
+      layoutRecognize === LayoutRecognizeType.MinerU ||
+      isHierarchical ||
+      isStrictRegex
+    ) {
+      // MinerU布局支持Hierarchical和StrictRegex切片方法
+      // 查找并返回这两个选项
+      const supportedOptions = allParserList.filter(
+        (option) =>
+          option.value === DocumentParserType.Hierarchical ||
+          option.value === DocumentParserType.StrictRegex,
       );
 
-      // 如果找到了Hierarchical选项，返回它；否则返回空数组
-      return hierarchicalOption ? [hierarchicalOption] : [];
+      return supportedOptions.length > 0 ? supportedOptions : [];
     } else {
       // 其他布局不支持Hierarchical
       return allParserList.filter(
@@ -116,20 +122,23 @@ const ChunkMethodModal: React.FC<IProps> = ({
     if (!visible || !layoutRecognize) return;
 
     // 简化逻辑：布局和切片方法的一致性检查
-    if (
-      layoutRecognize === LayoutRecognizeType.MinerU &&
-      selectedTag !== DocumentParserType.Hierarchical
-    ) {
-      // MinerU布局必须使用Hierarchical切片方法
+    const isSupportedMethod =
+      selectedTag === DocumentParserType.Hierarchical ||
+      selectedTag === DocumentParserType.StrictRegex;
+
+    if (layoutRecognize === LayoutRecognizeType.MinerU && !isSupportedMethod) {
+      // MinerU布局默认使用Hierarchical切片方法
       setTimeout(() => handleChange(DocumentParserType.Hierarchical), 0);
     } else if (
       layoutRecognize !== LayoutRecognizeType.MinerU &&
       selectedTag === DocumentParserType.Hierarchical
     ) {
       // Hierarchical切片方法只能用于MinerU布局
-      // 找到第一个非Hierarchical选项
+      // 找到第一个非Hierarchical/StrictRegex选项
       const firstNonHierarchical = allParserList.find(
-        (option) => option.value !== DocumentParserType.Hierarchical,
+        (option) =>
+          option.value !== DocumentParserType.Hierarchical &&
+          option.value !== DocumentParserType.StrictRegex,
       );
 
       if (firstNonHierarchical) {
@@ -143,8 +152,13 @@ const ChunkMethodModal: React.FC<IProps> = ({
     // 先更新切片方法
     handleChange(value);
 
-    // 只有在选择Hierarchical时需要设置布局为MinerU
-    if (value === DocumentParserType.Hierarchical) {
+    // MinerU布局支持的切片方法
+    const isSupportedMethod =
+      value === DocumentParserType.Hierarchical ||
+      value === DocumentParserType.StrictRegex;
+
+    // 如果选择的是支持MinerU的方法，设置布局为MinerU
+    if (isSupportedMethod) {
       setTimeout(() => {
         form.setFieldValue(
           ['parser_config', 'layout_recognize'],
@@ -171,13 +185,15 @@ const ChunkMethodModal: React.FC<IProps> = ({
 
   const showPages = useMemo(() => {
     // 简化判断逻辑
-    const isPdfOrHierarchical =
-      isPdf || selectedTag === DocumentParserType.Hierarchical;
+    const isPdfOrSupportedMethod =
+      isPdf ||
+      selectedTag === DocumentParserType.Hierarchical ||
+      selectedTag === DocumentParserType.StrictRegex;
 
-    // 不在隐藏列表中的PDF或Hierarchical切片方法需要显示页面范围
+    // 不在隐藏列表中的PDF或支持的切片方法需要显示页面范围
     // 确保selectedTag有值且不在隐藏列表中
     return (
-      isPdfOrHierarchical &&
+      isPdfOrSupportedMethod &&
       selectedTag &&
       !hidePagesChunkMethods.includes(selectedTag)
     );
@@ -191,7 +207,9 @@ const ChunkMethodModal: React.FC<IProps> = ({
     selectedTag === DocumentParserType.KnowledgeGraph;
 
   // 添加MaxMinTokenNumber显示逻辑 - 使用正确的枚举值
-  const showMaxMinTokenNumber = selectedTag === DocumentParserType.Hierarchical;
+  const showMaxMinTokenNumber =
+    selectedTag === DocumentParserType.Hierarchical ||
+    selectedTag === DocumentParserType.StrictRegex;
 
   const showEntityTypes = selectedTag === DocumentParserType.KnowledgeGraph;
 
@@ -403,7 +421,9 @@ const ChunkMethodModal: React.FC<IProps> = ({
               <Delimiter></Delimiter>
             </>
           )}
-          {showMaxMinTokenNumber && <MaxMinTokenNumber />}
+          {showMaxMinTokenNumber && (
+            <MaxMinTokenNumber selectedTag={selectedTag} />
+          )}
         </DatasetConfigurationContainer>
         <DatasetConfigurationContainer
           show={showAutoKeywords(selectedTag) || showExcelToHtml}

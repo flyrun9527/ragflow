@@ -19,6 +19,7 @@ const ParserListMap = new Map([
       DocumentParserType.Qa,
       DocumentParserType.KnowledgeGraph,
       DocumentParserType.Hierarchical,
+      DocumentParserType.StrictRegex,
     ],
   ],
   [
@@ -33,6 +34,7 @@ const ParserListMap = new Map([
       DocumentParserType.Manual,
       DocumentParserType.KnowledgeGraph,
       DocumentParserType.Hierarchical,
+      DocumentParserType.StrictRegex,
     ],
   ],
   [
@@ -44,11 +46,16 @@ const ParserListMap = new Map([
       DocumentParserType.One,
       DocumentParserType.KnowledgeGraph,
       DocumentParserType.Hierarchical,
+      DocumentParserType.StrictRegex,
     ],
   ],
   [
     ['ppt', 'pptx'],
-    [DocumentParserType.Presentation, DocumentParserType.Hierarchical],
+    [
+      DocumentParserType.Presentation,
+      DocumentParserType.Hierarchical,
+      DocumentParserType.StrictRegex,
+    ],
   ],
   [
     ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'tif', 'tiff', 'webp', 'svg', 'ico'],
@@ -66,6 +73,7 @@ const ParserListMap = new Map([
       DocumentParserType.Table,
       DocumentParserType.KnowledgeGraph,
       DocumentParserType.Hierarchical,
+      DocumentParserType.StrictRegex,
     ],
   ],
   [
@@ -80,6 +88,7 @@ const ParserListMap = new Map([
       DocumentParserType.Table,
       DocumentParserType.KnowledgeGraph,
       DocumentParserType.Hierarchical,
+      DocumentParserType.StrictRegex,
     ],
   ],
   [
@@ -89,7 +98,7 @@ const ParserListMap = new Map([
       DocumentParserType.Qa,
       DocumentParserType.KnowledgeGraph,
       DocumentParserType.Hierarchical,
-      DocumentParserType.Hierarchical,
+      DocumentParserType.StrictRegex,
     ],
   ],
   [
@@ -98,9 +107,17 @@ const ParserListMap = new Map([
       DocumentParserType.Naive,
       DocumentParserType.KnowledgeGraph,
       DocumentParserType.Hierarchical,
+      DocumentParserType.StrictRegex,
     ],
   ],
-  [['eml'], [DocumentParserType.Email, DocumentParserType.Hierarchical]],
+  [
+    ['eml'],
+    [
+      DocumentParserType.Email,
+      DocumentParserType.Hierarchical,
+      DocumentParserType.StrictRegex,
+    ],
+  ],
 ]);
 
 const getParserList = (
