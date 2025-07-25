@@ -259,6 +259,7 @@ def tokenize_chunks(chunks, doc, eng, pdf_parser=None):
     res = []
     # wrap up as es documents
     for ii, ck in enumerate(chunks):
+        logging.info(f"ck: {ck}")
         if len(ck.strip()) == 0:
             continue
         logging.debug("-- {}".format(ck))

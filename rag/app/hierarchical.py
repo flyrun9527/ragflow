@@ -7,14 +7,17 @@
 优化版本：采用更先进的分块策略和AST解析
 """
 
+import copy
+import logging
 import re
 import os
 import tempfile
 from typing import List, Dict, Any, Tuple
-from rag.app.utils import split_markdown_to_chunks_configured
+from minerU.parser.mineru_parser import MinerUParser
+from rag.app.utils import get_bbox_for_chunk, get_bbox_for_chunk_middle, split_markdown_to_chunks_configured
 import tiktoken
 
-from rag.nlp import rag_tokenizer
+from rag.nlp import add_positions, rag_tokenizer
 # 使用临时目录作为tiktoken缓存
 tiktoken_cache_dir = tempfile.gettempdir()
 os.environ["TIKTOKEN_CACHE_DIR"] = tiktoken_cache_dir
@@ -31,7 +34,8 @@ TABLE_PATTERN = re.compile(r'\|[^\n]*\|[\s\S]*?(?=\n\n|\n#|$)', re.MULTILINE)
 
 # 公式正则表达式
 MATH_PATTERN = re.compile(r'\$\$[\s\S]*?\$\$|\$[^\$\n]+\$', re.MULTILINE)
-def chunk(filename: str = None, binary=None, **kwargs) -> List[Dict[str, Any]]:
+def chunk(filename: str = None, binary=None, from_page=0, to_page=100000,
+          lang="Chinese", callback=None, **kwargs) -> List[Dict[str, Any]]:
     """
     基于标题层级的文档切片入口函数
     支持处理PDF解析器提取的文本内容以及Markdown文件
@@ -49,10 +53,9 @@ def chunk(filename: str = None, binary=None, **kwargs) -> List[Dict[str, Any]]:
         from rag.nlp import tokenize_chunks
         import logging
         import re
-        from deepdoc.parser import PdfParser as Pdf
-        from deepdoc.parser import PlainParser
         
         content = None
+        middle_json = None
         
         # 检查是否使用 MinerU 解析器
         layout_recognize = kwargs.get("parser_config", {}).get("layout_recognize", "MinerU")
@@ -71,8 +74,9 @@ def chunk(filename: str = None, binary=None, **kwargs) -> List[Dict[str, Any]]:
                 logging.info(f"调用 MinerU 解析器处理文件: {filename}")
                 try:
                     sections, tbls = pdf_parser(filename if not binary else binary, binary=binary,
-                                              from_page=kwargs.get('from_page', 0), to_page=kwargs.get('to_page', 1000), 
-                                              callback=kwargs.get('callback', None), 
+                                              from_page=from_page, to_page=to_page, 
+                                              lang=lang,
+                                              callback=callback, 
                                               kb_id=kwargs.get('kb_id'), doc_id=kwargs.get('doc_id'))
                     logging.info(f"MinerU 解析器返回结果: {len(sections)} 个文档块, {len(tbls)} 个表格")
                     
@@ -84,6 +88,7 @@ def chunk(filename: str = None, binary=None, **kwargs) -> List[Dict[str, Any]]:
                         # 将 sections 转换为文本内容
                         content = "\n\n".join([section.get('text', '') for section in sections if section.get('text')])
                         logging.info(f"MinerU 解析完成，提取文本长度: {len(content)}")
+                        middle_json = sections[0].get('middle_json', None)
                     else:
                         logging.error("MinerU 解析器返回空结果")
                         raise Exception("MinerU 服务异常：解析器返回空结果")
@@ -101,73 +106,6 @@ def chunk(filename: str = None, binary=None, **kwargs) -> List[Dict[str, Any]]:
             except ImportError as e:
                 logging.error(f"导入 MinerU 解析器失败: {str(e)}")
                 raise Exception(f"MinerU 解析器导入失败: {str(e)}")
-        # 如果不是MinerU解析器，根据文件类型判断
-        elif filename and re.search(r"\.pdf$", filename, re.IGNORECASE):
-            logging.info("处理 PDF 文件")
-            
-            if layout_recognize == "Plain Text":
-                logging.info("使用 Plain Text 解析器")
-                pdf_parser = PlainParser()
-                # PlainParser 接受 **kwargs，但不处理 binary 参数
-                if binary is not None:
-                    # 如果有二进制内容，先保存到临时文件
-                    import tempfile
-                    with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as temp_file:
-                        temp_file.write(binary)
-                        temp_path = temp_file.name
-                    try:
-                        sections, tbls = pdf_parser(temp_path, from_page=kwargs.get('from_page', 0), to_page=kwargs.get('to_page', 1000), callback=kwargs.get('callback', None))
-                    finally:
-                        import os
-                        try:
-                            os.unlink(temp_path)
-                        except:
-                            pass
-                else:
-                    sections, tbls = pdf_parser(filename, from_page=kwargs.get('from_page', 0), to_page=kwargs.get('to_page', 1000), callback=kwargs.get('callback', None))
-                
-                # 将 sections 转换为文本内容
-                content = "\n\n".join([section[0] for section in sections if section[0]])
-                logging.info(f"Plain Text 解析完成，提取文本长度: {len(content)}")
-                
-            # MinerU 解析器已在上面单独处理，不在此处重复
-            else:
-                logging.info(f"使用默认解析器: {layout_recognize}")
-                pdf_parser = Pdf()
-                # RAGFlowPdfParser 不接受 binary 参数
-                if binary is not None:
-                    # 如果有二进制内容，先保存到临时文件
-                    import tempfile
-                    with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as temp_file:
-                        temp_file.write(binary)
-                        temp_path = temp_file.name
-                    try:
-                        sections = pdf_parser(temp_path, from_page=kwargs.get('from_page', 0), to_page=kwargs.get('to_page', 1000))
-                    finally:
-                        import os
-                        try:
-                            os.unlink(temp_path)
-                        except:
-                            pass
-                else:
-                    sections = pdf_parser(filename, from_page=kwargs.get('from_page', 0), to_page=kwargs.get('to_page', 1000))
-                content = "\n\n".join(sections)
-                logging.info(f"默认解析完成，提取文本长度: {len(content)}")
-        
-        # 如果没有通过 PDF 解析器获取内容，尝试其他方式
-        if content is None:
-            # 处理 Markdown 文件或直接提供的文本内容
-            if binary is not None and isinstance(binary, str):
-                content = binary
-            elif binary is not None:
-                content = binary.decode('utf-8', errors='ignore')
-            elif filename:
-                if re.search(r"\.(md|markdown)$", filename, re.IGNORECASE):
-                    with open(filename, 'r', encoding='utf-8', errors='ignore') as f:
-                        content = f.read()
-                else:
-                    with open(filename, 'rb') as f:
-                        content = f.read().decode('utf-8', errors='ignore')
         
         if not content:
             logging.warning("未能获取文档内容")
@@ -188,7 +126,33 @@ def chunk(filename: str = None, binary=None, **kwargs) -> List[Dict[str, Any]]:
                     "chunk_token_num": chunk_token_num
                 }
             )
+        callback(prog=0.85, msg="分块完成，开始提取位置信息")
+
+        # 准备批量数据，包含位置信息
+        batch_chunks = []
+        for i, chunk in enumerate(chunks):
+            if chunk and chunk.strip():
+                logging.info(f"chunk: {chunk}")
+                chunk_data = {
+                    "content": chunk.strip(),
+                    "important_keywords": [],  # 可以根据需要添加关键词提取
+                    "questions": []  # 可以根据需要添加问题生成
+                }
+                position_int_temp = get_bbox_for_chunk_middle(middle_json=middle_json, chunk_content=chunk.strip())
+                
+                # 处理位置信息
+                if position_int_temp is not None:
+                    # 有完整位置信息，使用positions参数
+                    chunk_data["positions"] = position_int_temp
+                else:
+                    # 没有完整位置信息，使用top_int参数
+                    chunk_data["top_int"] = i
+                
+                # 将处理好的chunk添加到结果列表中
+                batch_chunks.append(chunk_data)
         
+        callback(prog=0.95, msg="位置信息提取完成")
+
         # 创建文档基础信息
         doc = {
             "docnm_kwd": filename,
@@ -197,21 +161,121 @@ def chunk(filename: str = None, binary=None, **kwargs) -> List[Dict[str, Any]]:
         doc["title_sm_tks"] = rag_tokenizer.fine_grained_tokenize(doc["title_tks"])
         
         # 检查是否为英文
-        is_english = kwargs.get('lang', 'Chinese').lower() == 'english'
+        is_english = lang.lower() == 'english'
         
         # 检查是否有PDF解析器（用于位置信息提取）
-        pdf_parser = kwargs.get('pdf_parser', None)
-        
+        result = []
         # 使用统一的tokenize_chunks函数处理位置信息
-        if pdf_parser:
-            # 如果有PDF解析器，使用它来提取位置信息
-            result = tokenize_chunks(chunks, doc, is_english, pdf_parser)
-        else:
-            # 没有PDF解析器时，使用简单的位置信息
-            result = tokenize_chunks(chunks, doc, is_english, None)
-        
+        for ii, ck in enumerate(batch_chunks):
+            if len(ck["content"].strip()) == 0:
+                continue
+            logging.debug("-- {}".format(ck["content"]))
+            d = copy.deepcopy(doc)
+            add_positions(d, ck["positions"])
+            tokenize(d, ck["content"], is_english)
+            result.append(d)
         return result
         
     except Exception as e:
         logging.error(f"基于标题层级的文档切片失败: {str(e)}")
         raise Exception(f"基于标题层级的文档切片失败: {str(e)}")
+
+def tokenize(d, t, eng):
+    d["content_with_weight"] = t
+    t = re.sub(r"</?(table|td|caption|tr|th)( [^<>]{0,12})?>", " ", t)
+    d["content_ltks"] = rag_tokenizer.tokenize(t)
+    d["content_sm_ltks"] = rag_tokenizer.fine_grained_tokenize(d["content_ltks"])
+
+# uv run python -m rag.app.hierarchical
+# 测试代码
+if __name__ == "__main__":
+    import os
+    import time
+    
+    # 配置日志
+    logging.basicConfig(level=logging.INFO)
+    
+    # 简单的回调函数，只打印消息
+    def print_msg(prog=0, msg="No message"):
+        print(f"[{prog*100:.1f}%] {msg}")
+
+    # 初始化解析器并调用
+    parser = MinerUParser()
+    print(f"初始化解析器完成，API URL: {parser.api_url}")
+    
+    # 确定测试文件路径 - 使用正确的路径格式和绝对路径
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    test_file = os.path.join(current_dir, "demo.pdf")
+    test_file = os.path.abspath(test_file)  # 确保是绝对路径
+    
+    # 检查文件是否存在
+    if not os.path.exists(test_file):
+        print(f"错误: 测试文件不存在 - {test_file}")
+        print(f"当前工作目录: {os.getcwd()}")
+        # 列出当前目录内容帮助调试
+        print("当前目录内容:")
+        try:
+            for item in os.listdir(current_dir):
+                print(f"  - {item}")
+        except Exception as e:
+            print(f"无法列出目录内容: {str(e)}")
+        import sys
+        sys.exit(1)
+    
+    # 显示文件信息
+    file_size = os.path.getsize(test_file) / 1024
+    print(f"开始解析文件: {test_file} (大小: {file_size:.2f} KB)")
+    start_time = time.time()
+    content = None
+    middle_json = None
+    # 解析文件
+    try:
+        sections, tables = parser(
+            filename_or_binary=test_file, 
+            callback=print_msg
+        )
+        
+        # 检查解析结果
+        if sections:
+            sample = sections[0]
+            logging.info(f"MinerU 解析结果示例: {sample}")
+            
+            # 将 sections 转换为文本内容
+            content = "\n\n".join([section.get('text', '') for section in sections if section.get('text')])
+            logging.info(f"MinerU 解析完成，提取文本长度: {len(content)}")
+            middle_json = sections[0].get('middle_json', None)
+            
+        chunks = split_markdown_to_chunks_configured(
+                content, 
+                chunk_token_num=256,
+                min_chunk_tokens=10,
+                chunking_config={
+                    "strategy": "advanced", 
+                    "min_chunk_tokens": 10,
+                    "chunk_token_num": 256
+                }
+            )
+        batch_chunks = []
+        for i, chunk in enumerate(chunks):
+            if chunk and chunk.strip():
+                chunk_data = {
+                    "content": chunk.strip(),
+                    "important_keywords": [],  # 可以根据需要添加关键词提取
+                    "questions": []  # 可以根据需要添加问题生成
+                }
+                position_int_temp = get_bbox_for_chunk_middle(middle_json=middle_json, chunk_content=chunk.strip())
+                
+                # 处理位置信息
+                if position_int_temp is not None:
+                    # 有完整位置信息，使用positions参数
+                    chunk_data["positions"] = position_int_temp
+                else:
+                    # 没有完整位置信息，使用top_int参数
+                    chunk_data["top_int"] = i
+                
+                # 将处理好的chunk添加到结果列表中
+                batch_chunks.append(chunk_data)
+    except Exception as e:
+        print(f"解析失败: {str(e)}")
+        import traceback
+        traceback.print_exc()

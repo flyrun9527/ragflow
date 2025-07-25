@@ -64,10 +64,9 @@ class MinerUParser:
         self.server_url= config.server_url
         self.timeout = timeout or config.timeout
         self.backend = config.backend
-        self.language = config.language
         self.s3_config = s3_config or {}
 
-    def __call__(self, filename_or_binary, binary=None, from_page=None, to_page=None, 
+    def __call__(self, filename_or_binary, binary=None, from_page=None, to_page=None, lang=None,
                  callback=None, kb_id=None, doc_id=None) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         """解析PDF文件并返回文档块和表格。
         
@@ -144,7 +143,8 @@ class MinerUParser:
             documents = self._parse_pdf(
                 pdf_path=pdf_file_path, 
                 kb_id=kb_id, 
-                doc_id=doc_id
+                doc_id=doc_id,
+                lang=lang
             )
             
             if callback:
@@ -157,11 +157,12 @@ class MinerUParser:
             for doc in documents:
                 sections.append({
                     "text": doc["page_content"],
-                    "metadata": doc["metadata"]
+                    "metadata": doc["metadata"],
+                    "middle_json": doc["middle_json"]
                 })
                 
             if callback:
-                callback(prog=1.0, msg="文档处理完成")
+                callback(prog=0.83, msg="文档处理完成，开始分块")
                 
             return sections, tables
             
@@ -249,7 +250,7 @@ class MinerUParser:
             logger.error(f"从MinIO读取文件失败: {str(e)}")
             raise MinerUParserError(f"从MinIO读取文件失败: {str(e)}")
 
-    def _parse_pdf(self, pdf_path, kb_id, doc_id):
+    def _parse_pdf(self, pdf_path, kb_id, doc_id, lang):
         """解析PDF文件，提取内容并转换为文档对象。
         
         参数:
@@ -264,7 +265,7 @@ class MinerUParser:
             MinerUParserError: 解析失败时抛出
         """
         # 1. 调用API解析PDF
-        api_result = self._api_parse_pdf(file_path=pdf_path)
+        api_result = self._api_parse_pdf(file_path=pdf_path, lang=lang)
         
         # 2. 将API结果转换为文档对象
         return self._convert_to_documents(
@@ -275,7 +276,7 @@ class MinerUParser:
         )
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
-    def _api_parse_pdf(self, file_path):
+    def _api_parse_pdf(self, file_path, lang):
         """调用MinerU API解析PDF文件，支持自动重试。
         
         参数:
@@ -291,7 +292,7 @@ class MinerUParser:
         # 1. 准备请求参数
         request_params = {
             'output_dir': './output',
-            'lang_list': self.language,
+            'lang_list': 'ch' if lang=='Chinese' else 'auto',
             'backend': self.backend,
             'parse_method': 'auto',
             'server_url': self.server_url,
@@ -373,7 +374,8 @@ class MinerUParser:
         # 4. 提取Markdown内容
         doc_content = results_data[doc_key]
         markdown_content = doc_content.get('md_content', '')
-        
+        middle_json = doc_content.get('middle_json', '')
+
         if not markdown_content:
             logger.warning(f"文件 {file_path} 未返回Markdown内容")
             return []
@@ -393,6 +395,7 @@ class MinerUParser:
         # 6. 创建文档对象
         document = {
             "page_content": markdown_content,
+            "middle_json": middle_json,
             "metadata": {
                 "source": file_path,
                 "parser": "mineru",
@@ -613,7 +616,7 @@ class MinerUParser:
         logger.info(f"已保存二进制内容到临时文件: {temp_file_path}")
         return temp_file_path
 
-
+# uv run python -m minerU.parser.mineru_parser
 # 测试代码
 if __name__ == "__main__":
     import os
