@@ -12,10 +12,10 @@ import re
 import logging
 import tempfile
 from typing import List, Dict, Any, Optional
-from rag.app.utils import get_bbox_for_chunk_middle, split_markdown_to_chunks_strict_regex, split_markdown_to_chunks_smart
+from rag.app.utils import batch_add_chunk, batch_get_bbox_for_chunk_middle, get_bbox_for_chunk_middle, split_markdown_to_chunks_configured, split_markdown_to_chunks_strict_regex, split_markdown_to_chunks_smart
 import tiktoken
 
-from rag.nlp import add_positions, rag_tokenizer
+from rag.nlp import add_positions, rag_tokenizer, tokenize
 # 使用临时目录作为tiktoken缓存
 tiktoken_cache_dir = tempfile.gettempdir()
 os.environ["TIKTOKEN_CACHE_DIR"] = tiktoken_cache_dir
@@ -53,7 +53,10 @@ def chunk(filename: str = None, binary=None, from_page=0, to_page=100000,
 
         layout_recognize = parser_config.get("layout_recognize", "PlainText")
         logging.info(f"strict_regex.chunk: layout_recognize={layout_recognize}, regex_pattern={regex_pattern}")
-        
+        doc_id = kwargs.get('doc_id')
+        kb_id = kwargs.get('kb_id')
+        name = kwargs.get('name')
+
         # 检查是否使用 MinerU 解析器
         if layout_recognize == "MinerU":
             logging.info(f"使用 MinerU 解析器处理文件: {filename}")
@@ -70,7 +73,7 @@ def chunk(filename: str = None, binary=None, from_page=0, to_page=100000,
                                               from_page=from_page, to_page=to_page, 
                                               lang=lang,
                                               callback=callback, 
-                                              kb_id=kwargs.get('kb_id'), doc_id=kwargs.get('doc_id'))
+                                              kb_id=kb_id, doc_id=doc_id)
                     logging.info(f"MinerU 解析器返回结果: {len(sections)} 个文档块, {len(tbls)} 个表格")
                     
                     # 检查解析结果
@@ -100,64 +103,29 @@ def chunk(filename: str = None, binary=None, from_page=0, to_page=100000,
             
         # 使用正则表达式分块
         logging.info(f"使用正则表达式分块，模式: {regex_pattern}")
-        chunks = split_markdown_to_chunks_strict_regex(
-            content, 
-            chunk_token_num=chunk_token_num,
-            min_chunk_tokens=min_token_num,
-            regex_pattern=regex_pattern
-        )
-                # 准备批量数据，包含位置信息
-        batch_chunks = []
-        for i, chunk in enumerate(chunks):
-            if chunk and chunk.strip():
-                logging.info(f"chunk: {chunk}")
-                chunk_data = {
-                    "content": chunk.strip(),
-                    "important_keywords": [],  # 可以根据需要添加关键词提取
-                    "questions": []  # 可以根据需要添加问题生成
+        chunks = split_markdown_to_chunks_configured(
+                content, 
+                chunk_token_num=chunk_token_num,
+                min_chunk_tokens=min_token_num,
+                chunking_config={
+                    "strategy": "strict_regex", 
+                    "min_chunk_tokens": min_token_num,
+                    "chunk_token_num": chunk_token_num
                 }
-                position_int_temp = get_bbox_for_chunk_middle(middle_json=middle_json, chunk_content=chunk.strip())
-                
-                # 处理位置信息
-                if position_int_temp is not None:
-                    # 有完整位置信息，使用positions参数
-                    chunk_data["positions"] = position_int_temp
-                else:
-                    # 没有完整位置信息，使用top_int参数
-                    chunk_data["top_int"] = i
-                
-                # 将处理好的chunk添加到结果列表中
-                batch_chunks.append(chunk_data)
+            )
+        callback(prog=0.85, msg="分块完成，开始提取位置信息")
+
+        batch_chunks = batch_get_bbox_for_chunk_middle(middle_json, chunks)
+
         callback(prog=0.85, msg="分块完成")
 
-        # 创建文档基础信息
-        doc = {
-            "docnm_kwd": filename,
-            "title_tks": rag_tokenizer.tokenize(re.sub(r"\.[a-zA-Z]+$", "", filename))
-        }
-        doc["title_sm_tks"] = rag_tokenizer.fine_grained_tokenize(doc["title_tks"])
-        
         # 检查是否为英文
         is_english = lang.lower() == 'english'
         
-        # 检查是否有PDF解析器（用于位置信息提取）
-        result = []
-        # 使用统一的tokenize_chunks函数处理位置信息
-        for ii, ck in enumerate(batch_chunks):
-            if len(ck["content"].strip()) == 0:
-                continue
-            logging.debug("-- {}".format(ck["content"]))
-            d = copy.deepcopy(doc)
-            add_positions(d, ck["positions"])
-            tokenize(d, ck["content"], is_english)
-            result.append(d)
+        result = batch_add_chunk(batch_chunks, doc_id, kb_id, name, is_english)
+
         return result
         
     except Exception as e:
         logging.error(f"基于正则表达式的文档分块失败: {str(e)}")
         raise Exception(f"基于正则表达式的文档分块失败: {str(e)}") 
-def tokenize(d, t, eng):
-    d["content_with_weight"] = t
-    t = re.sub(r"</?(table|td|caption|tr|th)( [^<>]{0,12})?>", " ", t)
-    d["content_ltks"] = rag_tokenizer.tokenize(t)
-    d["content_sm_ltks"] = rag_tokenizer.fine_grained_tokenize(d["content_ltks"])

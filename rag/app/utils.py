@@ -13,6 +13,7 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 #
+import datetime
 import logging
 import os
 import tiktoken
@@ -22,6 +23,14 @@ import re
 from markdown import markdown as md_to_html
 import time
 import difflib
+from rapidfuzz import fuzz
+import threading
+from concurrent.futures import ThreadPoolExecutor
+
+import xxhash
+
+from api.apps.sdk.doc import add_chunk
+from rag.nlp import add_positions, rag_tokenizer, tokenize
 try:
     from markdown_it import MarkdownIt
     from markdown_it.tree import SyntaxTreeNode
@@ -384,7 +393,7 @@ def get_blocks_from_md(md_file_path):
             for page_idx, page in enumerate(data['pdf_info']):
                 # Pipeline模式：有preproc_blocks字段
                 if 'preproc_blocks' in page:
-                    print(f"[INFO] 检测到Pipeline模式数据结构")
+                    # print(f"[INFO] 检测到Pipeline模式数据结构")
                     for block in page['preproc_blocks']:
                         bbox = block.get('bbox')
                         if not bbox:
@@ -411,7 +420,7 @@ def get_blocks_from_md(md_file_path):
                 
                 # VLM模式：使用para_blocks字段（数组格式）
                 elif 'para_blocks' in page:
-                    print(f"[INFO] 检测到VLM模式数据结构")
+                    # print(f"[INFO] 检测到VLM模式数据结构")
                     para_blocks = page['para_blocks']
                     if isinstance(para_blocks, list):
                         # VLM模式: para_blocks是数组
@@ -484,7 +493,7 @@ def get_blocks_from_md_middle(middle_json):
     for page_idx, page in enumerate(data['pdf_info']):
         # Pipeline模式：有preproc_blocks字段
         if 'preproc_blocks' in page:
-            print(f"[INFO] 检测到Pipeline模式数据结构")
+            # print(f"[INFO] 检测到Pipeline模式数据结构")
             for block in page['preproc_blocks']:
                 bbox = block.get('bbox')
                 if not bbox:
@@ -511,7 +520,7 @@ def get_blocks_from_md_middle(middle_json):
         
         # VLM模式：使用para_blocks字段（数组格式）
         elif 'para_blocks' in page:
-            print(f"[INFO] 检测到VLM模式数据结构")
+            # print(f"[INFO] 检测到VLM模式数据结构")
             para_blocks = page['para_blocks']
             if isinstance(para_blocks, list):
                 # VLM模式: para_blocks是数组
@@ -675,11 +684,13 @@ def get_bbox_for_chunk_middle(middle_json, chunk_content, block_list=None, match
             block_text = block.get('text', '').strip()
             if not block_text:
                 continue
-            ratio = difflib.SequenceMatcher(None, chunk_content_clean, block_text).ratio()
+            # 替换difflib为rapidfuzz，结果需要除以100转换为0
+            ratio = fuzz.ratio(chunk_content_clean, block_text) / 100.0
+            # ratio = difflib.SequenceMatcher(None, chunk_content_clean, block_text).ratio()
             if ratio > best_ratio:
                 best_ratio = ratio
                 best_idx = i
-        if best_idx == -1 or best_ratio < 0.1:  # 阈值可调整
+        if best_idx == -1 or best_ratio < 0.005:  # 阈值可调整
             print(f"[WARNING] 未找到足够相似的块 (最高相似度: {best_ratio:.3f})")
             return None
 
@@ -1585,3 +1596,102 @@ def split_markdown_to_chunks_strict_regex(txt, chunk_token_num=256, min_chunk_to
     except Exception as e:
         print(f"❌ [ERROR] 自定义正则分块发生异常: {e}，回退到智能分块")
         return split_markdown_to_chunks_smart(txt, chunk_token_num, min_chunk_tokens)
+
+def batch_get_bbox_for_chunk_middle(middle_json, chunks):
+    """
+    批量处理多个chunks，获取它们的bbox位置，使用多线程加速处理。
+    
+    Args:
+        middle_json: 中间格式JSON数据
+        chunks: 多个chunk内容的列表
+        
+    Returns:
+        包含位置信息的批处理结果列表
+    """
+    
+    # 解析一次block_list以供所有线程共享
+    block_list = get_blocks_from_md_middle(middle_json)
+    
+    # 线程安全的结果列表
+    results = [None] * len(chunks)
+    
+    # 共享的已匹配索引
+    matched_global_indices = set()
+    lock = threading.Lock()
+    
+    def process_chunk(idx, chunk):
+        if not chunk or not chunk.strip():
+            return
+            
+        # 获取位置信息
+        with lock:
+            position_int_temp = get_bbox_for_chunk_middle(
+                middle_json=middle_json, 
+                chunk_content=chunk.strip(),
+                block_list=block_list,
+                matched_global_indices=matched_global_indices
+            )
+        
+        chunk_data = {
+            "content": chunk.strip(),
+            "important_keywords": [],  # 可以根据需要添加关键词提取
+            "questions": []  # 可以根据需要添加问题生成
+        }
+        
+        # 处理位置信息，确保始终有positions键，即使为空列表
+        if position_int_temp is not None:
+            # 有完整位置信息，使用positions参数
+            chunk_data["positions"] = position_int_temp
+        else:
+            # 没有完整位置信息，使用top_int参数
+            chunk_data["top_int"] = idx
+            # 确保positions键存在
+            chunk_data["positions"] = []
+        
+        results[idx] = chunk_data
+    
+    # 使用线程池并行处理，限制最大10个线程
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        # 提交所有任务
+        futures = [
+            executor.submit(process_chunk, i, chunk) 
+            for i, chunk in enumerate(chunks) if chunk and chunk.strip()
+        ]
+        
+        # 等待所有任务完成
+        for future in futures:
+            future.result()
+    
+    # 过滤掉空结果
+    return [r for r in results if r is not None]
+
+def batch_add_chunk(batch_chunks, doc_id, kb_id, filename, is_english):
+    result = []
+    # 使用统一的tokenize_chunks函数处理位置信息
+    for original_index, chunk_req in enumerate(batch_chunks):
+        if not chunk_req or not chunk_req.get("content") or len(chunk_req.get("content", "").strip()) == 0:
+            logging.warning(f"跳过空内容块: {chunk_req}")
+            continue
+            
+        logging.debug("-- {}".format(chunk_req["content"]))
+
+        content = chunk_req["content"].strip()
+        
+        # 基础chunk数据结构
+        d = {
+            "title_tks": rag_tokenizer.tokenize(filename),
+            "title_sm_tks": rag_tokenizer.fine_grained_tokenize(rag_tokenizer.tokenize(filename)),
+            "docnm_kwd": filename,
+        }
+        # 确保positions存在且非None
+        if "positions" in chunk_req:
+            positions = chunk_req["positions"]
+            if positions is not None:
+                add_positions(d, positions)
+            else:
+                # 如果positions为None，使用空列表
+                add_positions(d, [])
+                
+        tokenize(d, content, is_english)
+        result.append(d)
+    return result
