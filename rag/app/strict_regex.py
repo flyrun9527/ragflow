@@ -117,7 +117,7 @@ def chunk(filename: str = None, binary=None, from_page=0, to_page=100000,
 
         batch_chunks = batch_get_bbox_for_chunk_middle(middle_json, chunks)
 
-        callback(prog=0.85, msg="分块完成")
+        callback(prog=0.95, msg="位置信息提取完成")
 
         # 检查是否为英文
         is_english = lang.lower() == 'english'
