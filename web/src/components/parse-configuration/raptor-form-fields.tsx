@@ -46,6 +46,10 @@ export const showTagItems = (parserId: DocumentParserType) => {
 
 const UseRaptorField = 'parser_config.raptor.use_raptor';
 const RandomSeedField = 'parser_config.raptor.random_seed';
+const MaxTokenField = 'parser_config.raptor.max_token';
+const ThresholdField = 'parser_config.raptor.threshold';
+const MaxCluster = 'parser_config.raptor.max_cluster';
+const Prompt = 'parser_config.raptor.prompt';
 
 // The three types "table", "resume" and "one" do not display this configuration.
 
@@ -53,6 +57,19 @@ const RaptorFormFields = () => {
   const form = useFormContext();
   const { t } = useTranslate('knowledgeConfiguration');
   const useRaptor = useWatch({ name: UseRaptorField });
+
+  const changeRaptor = useCallback(
+    (isUseRaptor: boolean) => {
+      if (isUseRaptor) {
+        form.setValue(MaxTokenField, 256);
+        form.setValue(ThresholdField, 0.1);
+        form.setValue(MaxCluster, 64);
+        form.setValue(RandomSeedField, 0);
+        form.setValue(Prompt, t('promptText'));
+      }
+    },
+    [form],
+  );
 
   const handleGenerate = useCallback(() => {
     form.setValue(RandomSeedField, random(10000));
@@ -73,10 +90,10 @@ const RaptorFormFields = () => {
               defaultChecked={false}
               className="items-center space-y-0 "
             >
-              <div className="flex items-center">
+              <div className="flex items-center gap-1">
                 <FormLabel
                   tooltip={t('useRaptorTip')}
-                  className="text-sm text-muted-foreground whitespace-nowrap w-1/4"
+                  className="text-sm text-muted-foreground w-1/4 whitespace-break-spaces"
                 >
                   {t('useRaptor')}
                 </FormLabel>
@@ -84,7 +101,10 @@ const RaptorFormFields = () => {
                   <FormControl>
                     <Switch
                       checked={field.value}
-                      onCheckedChange={field.onChange}
+                      onCheckedChange={(e) => {
+                        changeRaptor(e);
+                        field.onChange(e);
+                      }}
                     ></Switch>
                   </FormControl>
                 </div>
@@ -117,7 +137,9 @@ const RaptorFormFields = () => {
                         <Textarea
                           {...field}
                           rows={8}
-                          defaultValue={t('promptText')}
+                          onChange={(e) => {
+                            field.onChange(e?.target?.value);
+                          }}
                         />
                       </FormControl>
                     </div>
@@ -134,7 +156,6 @@ const RaptorFormFields = () => {
             name={'parser_config.raptor.max_token'}
             label={t('maxToken')}
             tooltip={t('maxTokenTip')}
-            defaultValue={256}
             max={2048}
             min={0}
             layout={FormLayout.Horizontal}
@@ -143,7 +164,6 @@ const RaptorFormFields = () => {
             name={'parser_config.raptor.threshold'}
             label={t('threshold')}
             tooltip={t('thresholdTip')}
-            defaultValue={0.1}
             step={0.01}
             max={1}
             min={0}
@@ -153,7 +173,6 @@ const RaptorFormFields = () => {
             name={'parser_config.raptor.max_cluster'}
             label={t('maxCluster')}
             tooltip={t('maxClusterTip')}
-            defaultValue={64}
             max={1024}
             min={1}
             layout={FormLayout.Horizontal}

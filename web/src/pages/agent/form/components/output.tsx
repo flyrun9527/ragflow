@@ -1,3 +1,5 @@
+import { t } from 'i18next';
+
 export type OutputType = {
   title: string;
   type?: string;
@@ -17,14 +19,14 @@ export function transferOutputs(outputs: Record<string, any>) {
 export function Output({ list }: OutputProps) {
   return (
     <section className="space-y-2">
-      <div>Output</div>
+      <div>{t('flow.output')}</div>
       <ul>
         {list.map((x, idx) => (
           <li
             key={idx}
-            className="bg-background-highlight text-background-checked rounded-sm px-2 py-1"
+            className="bg-background-highlight text-accent-primary rounded-sm px-2 py-1"
           >
-            {x.title}: {x.type}
+            {x.title}: <span className="text-text-secondary">{x.type}</span>
           </li>
         ))}
       </ul>

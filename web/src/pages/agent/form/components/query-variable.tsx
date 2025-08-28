@@ -47,7 +47,7 @@ export function QueryVariable({
       render={({ field }) => (
         <FormItem>
           {label || (
-            <FormLabel tooltip={t('chat.modelTip')}>
+            <FormLabel tooltip={t('flow.queryTip')}>
               {t('flow.query')}
             </FormLabel>
           )}
@@ -55,6 +55,7 @@ export function QueryVariable({
             <SelectWithSearch
               options={finalOptions}
               {...field}
+              allowClear
             ></SelectWithSearch>
           </FormControl>
           <FormMessage />

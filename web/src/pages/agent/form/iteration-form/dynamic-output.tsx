@@ -12,6 +12,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { RAGFlowNodeType } from '@/interfaces/database/flow';
+import { t } from 'i18next';
 import { X } from 'lucide-react';
 import { ReactNode, useCallback, useMemo } from 'react';
 import { useFieldArray, useFormContext } from 'react-hook-form';
@@ -75,7 +76,7 @@ export function DynamicOutputForm({ node }: IProps) {
                 </FormItem>
               )}
             />
-            <Separator className="w-3 text-text-sub-title" />
+            <Separator className="w-3 text-text-secondary" />
             <FormField
               control={form.control}
               name={`${name}.${index}.ref`}
@@ -107,20 +108,20 @@ export function DynamicOutputForm({ node }: IProps) {
         );
       })}
       <BlockButton onClick={() => append({ name: '', ref: undefined })}>
-        Add
+        {t('common.add')}
       </BlockButton>
     </div>
   );
 }
 
 export function VariableTitle({ title }: { title: ReactNode }) {
-  return <div className="font-medium text-text-title pb-2">{title}</div>;
+  return <div className="font-medium text-text-primary pb-2">{title}</div>;
 }
 
 export function DynamicOutput({ node }: IProps) {
   return (
     <FormContainer>
-      <VariableTitle title={'Output'}></VariableTitle>
+      <VariableTitle title={t('flow.output')}></VariableTitle>
       <DynamicOutputForm node={node}></DynamicOutputForm>
     </FormContainer>
   );

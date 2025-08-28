@@ -66,10 +66,10 @@ export function ChunkMethodForm() {
   }, [finalParserId]);
 
   return (
-    <>
-      <section className="overflow-auto max-h-[76vh]">
+    <section className="h-full flex flex-col">
+      <div className="overflow-auto flex-1 min-h-0">
         <ConfigurationComponent></ConfigurationComponent>
-      </section>
+      </div>
       <div className="text-right pt-4 flex justify-end gap-3">
         <Button
           type="reset"
@@ -88,13 +88,17 @@ export function ChunkMethodForm() {
                 let beValid = await form.formControl.trigger();
                 if (beValid) {
                   // setSubmitLoading(true);
-                  let postData = form.formState.values;
-                  delete postData['avatar']; // has submitted in first form general
-
-                  saveKnowledgeConfiguration({
-                    ...postData,
-                    kb_id,
-                  });
+                  // let postData = form.formState.values;
+                  // console.log('submit form -->', form);
+                  // delete postData['avatar']; // has submitted in first form general
+                  form.handleSubmit(async (values) => {
+                    console.log('saveKnowledgeConfiguration: ', values);
+                    delete values['avatar'];
+                    await saveKnowledgeConfiguration({
+                      kb_id,
+                      ...values,
+                    });
+                  })();
                 }
               } catch (e) {
                 console.log(e);
@@ -108,6 +112,6 @@ export function ChunkMethodForm() {
           {t('knowledgeConfiguration.save')}
         </Button>
       </div>
-    </>
+    </section>
   );
 }

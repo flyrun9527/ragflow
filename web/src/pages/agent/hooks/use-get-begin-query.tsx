@@ -3,14 +3,38 @@ import { useFetchAgent } from '@/hooks/use-agent-request';
 import { RAGFlowNodeType } from '@/interfaces/database/flow';
 import { Edge } from '@xyflow/react';
 import { DefaultOptionType } from 'antd/es/select';
+import { t } from 'i18next';
 import { isEmpty } from 'lodash';
 import get from 'lodash/get';
 import { useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { BeginId, BeginQueryType, Operator, VariableType } from '../constant';
+import {
+  AgentDialogueMode,
+  BeginId,
+  BeginQueryType,
+  Operator,
+  VariableType,
+} from '../constant';
 import { AgentFormContext } from '../context';
 import { buildBeginInputListFromObject } from '../form/begin-form/utils';
 import { BeginQuery } from '../interface';
 import useGraphStore from '../store';
+
+export function useSelectBeginNodeDataInputs() {
+  const getNode = useGraphStore((state) => state.getNode);
+
+  return buildBeginInputListFromObject(
+    getNode(BeginId)?.data?.form?.inputs ?? {},
+  );
+}
+
+export function useIsTaskMode() {
+  const getNode = useGraphStore((state) => state.getNode);
+
+  return useMemo(() => {
+    const node = getNode(BeginId);
+    return node?.data?.form?.mode === AgentDialogueMode.Task;
+  }, [getNode]);
+}
 
 export const useGetBeginNodeDataQuery = () => {
   const getNode = useGraphStore((state) => state.getNode);
@@ -39,14 +63,14 @@ export const useGetBeginNodeDataInputs = () => {
 export const useGetBeginNodeDataQueryIsSafe = () => {
   const [isBeginNodeDataQuerySafe, setIsBeginNodeDataQuerySafe] =
     useState(false);
-  const getBeginNodeDataQuery = useGetBeginNodeDataQuery();
+  const inputs = useSelectBeginNodeDataInputs();
   const nodes = useGraphStore((state) => state.nodes);
 
   useEffect(() => {
-    const query: BeginQuery[] = getBeginNodeDataQuery();
+    const query: BeginQuery[] = inputs;
     const isSafe = !query.some((q) => !q.optional && q.type === 'file');
     setIsBeginNodeDataQuerySafe(isSafe);
-  }, [getBeginNodeDataQuery, nodes]);
+  }, [inputs, nodes]);
 
   return isBeginNodeDataQuerySafe;
 };
@@ -132,22 +156,21 @@ function transferToVariableType(type: string) {
 }
 
 export function useBuildBeginVariableOptions() {
-  const getBeginNodeDataQuery = useGetBeginNodeDataQuery();
+  const inputs = useSelectBeginNodeDataInputs();
 
   const options = useMemo(() => {
-    const query: BeginQuery[] = getBeginNodeDataQuery();
     return [
       {
-        label: <span>Begin Input</span>,
+        label: <span>{t('flow.beginInput')}</span>,
         title: 'Begin Input',
-        options: query.map((x) => ({
+        options: inputs.map((x) => ({
           label: x.name,
           value: `begin@${x.key}`,
           type: transferToVariableType(x.type),
         })),
       },
     ];
-  }, [getBeginNodeDataQuery]);
+  }, [inputs]);
 
   return options;
 }

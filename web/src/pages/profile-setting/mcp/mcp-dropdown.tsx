@@ -7,10 +7,11 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useDeleteMcpServer } from '@/hooks/use-mcp-request';
-import { PenLine, Trash2 } from 'lucide-react';
+import { PenLine, Trash2, Upload } from 'lucide-react';
 import { MouseEventHandler, PropsWithChildren, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { UseEditMcpReturnType } from './use-edit-mcp';
+import { useExportMcp } from './use-export-mcp';
 
 export function McpDropdown({
   children,
@@ -22,6 +23,7 @@ export function McpDropdown({
   >) {
   const { t } = useTranslation();
   const { deleteMcpServer } = useDeleteMcpServer();
+  const { handleExportMcpJson } = useExportMcp();
 
   const handleDelete: MouseEventHandler<HTMLDivElement> = useCallback(() => {
     deleteMcpServer([mcpId]);
@@ -35,9 +37,13 @@ export function McpDropdown({
           {t('common.edit')} <PenLine />
         </DropdownMenuItem>
         <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={handleExportMcpJson([mcpId])}>
+          {t('mcp.export')} <Upload />
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
         <ConfirmDeleteDialog onOk={handleDelete}>
           <DropdownMenuItem
-            className="text-text-delete-red"
+            className="text-state-error"
             onSelect={(e) => {
               e.preventDefault();
             }}
