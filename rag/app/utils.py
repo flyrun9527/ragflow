@@ -176,7 +176,10 @@ def singleton(cls, *args, **kw):
     return _singleton
 
 
-tiktoken_cache_dir = tempfile.gettempdir()
+# 设置tiktoken缓存目录，优先使用环境变量，否则使用默认路径
+tiktoken_cache_dir = os.environ.get("TIKTOKEN_CACHE_DIR", "/opt/tiktoken_cache")
+# 确保缓存目录存在
+os.makedirs(tiktoken_cache_dir, exist_ok=True)
 os.environ["TIKTOKEN_CACHE_DIR"] = tiktoken_cache_dir
 # encoder = tiktoken.encoding_for_model("gpt-3.5-turbo")
 encoder = tiktoken.get_encoding("cl100k_base")
