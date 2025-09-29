@@ -123,7 +123,7 @@ services:
     command:
       --server-name 127.0.0.1
       --server-port 7860
-      # 默认使用 pipeline/vlm-transformers/vlm-sglang-client 后端
+      # 默认使用 pipeline/vlm-transformers/vlm-sglang-client/vllm-http-client 后端
       # --enable-sglang-engine  #使用 vlm-sglang-engine/pipeline 后端
     ipc: host    
     networks:

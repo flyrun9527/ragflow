@@ -41,8 +41,8 @@ class MinerUParserConfig(BaseModel):
     
     # Backend to use for parsing
     backend: str = Field(
-        default="vlm-sglang-client",
-        description="Backend to use for parsing (pipeline, vlm-transformers, vlm-sglang-engine, vlm-sglang-client)"
+        default="vlm-http-client",
+        description="Backend to use for parsing (pipeline, vlm-transformers, vlm-sglang-engine, vlm-sglang-client, vlm-http-client(2.5))"
     )
     
     # Language for OCR
@@ -65,5 +65,5 @@ class MinerUParserConfig(BaseModel):
             server_url=os.environ.get("MINERU_SERVER_URL", "http://192.168.130.24:30000"),
             timeout=int(os.environ.get("MINERU_TIMEOUT", "300")),
             use_hierarchical=os.environ.get("MINERU_USE_HIERARCHICAL", "true").lower() == "true",
-            backend=os.environ.get("MINERU_BACKEND", "vlm-sglang-client"),
+            backend=os.environ.get("MINERU_BACKEND", "vlm-http-client"),
         ) 
