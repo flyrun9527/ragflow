@@ -103,8 +103,8 @@ def convert_to_pdf(file_path: str) -> str:
         else:
             raise ValueError(f"不支持转换的文件类型: {file_ext}")
         
-        # 向 Gotenberg 发送请求
-        response = requests.post(endpoint, files=files)
+        # 向 Gotenberg 发送请求，增加超时时间
+        response = requests.post(endpoint, files=files, timeout=60000)
         
         if response.status_code != 200:
             raise RuntimeError(f"Gotenberg 转换失败，状态码 {response.status_code}: {response.text}")

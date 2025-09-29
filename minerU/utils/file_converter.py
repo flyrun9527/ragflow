@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 # --- Constants ---
 GOTENBERG_URL = os.environ.get("GOTENBERG_URL", "http://192.168.130.24:23000")
 DEFAULT_GOTENBERG_TIMEOUT_URL = 120  # seconds for URL conversion
-DEFAULT_GOTENBERG_TIMEOUT_OFFICE = 300  # seconds for Office conversion
+DEFAULT_GOTENBERG_TIMEOUT_OFFICE = 60000  # seconds for Office conversion (increased from 300 to 600)
 
 OFFICE_EXTENSIONS = {
     ".123", ".602", ".abw", ".bib", ".bmp", ".cdr", ".cgm", ".cmx", ".csv", ".cwk", ".dbf", ".dif", 
@@ -70,19 +70,33 @@ def _convert_office_to_pdf(office_file_path: str, output_pdf_path: str, timeout:
 
 def _generate_safe_temp_filename(original_input: str, base_temp_dir: str, prefix: str = "conv", suffix: str = ".pdf") -> str:
     """Generates a safe temporary filename within base_temp_dir based on the original input."""
-    base_name = os.path.basename(original_input)
-    if original_input.startswith("http"): # For URLs
-        # Try to get a meaningful name from URL path, remove query params
-        name_part = base_name.split('?')[0]
-        # Limit length and sanitize
-        safe_base = re.sub(r'[^a-zA-Z0-9_.-]', '_', name_part)[:50]
-        if not safe_base or safe_base.endswith(('.htm', '.html', '.php', '.asp', '.aspx', '')) : # if empty or common web ext
-             safe_base = "webpage" # default if name is too generic or just an extension
-        
-    else: # For local files
-        name_part = os.path.splitext(base_name)[0]
-        safe_base = re.sub(r'[^a-zA-Z0-9_.-]', '_', name_part)[:50]
-
+    try:
+        base_name = os.path.basename(original_input)
+        if original_input.startswith("http"): # For URLs
+            # Try to get a meaningful name from URL path, remove query params
+            name_part = base_name.split('?')[0]
+            # Limit length and sanitize
+            safe_base = re.sub(r'[^a-zA-Z0-9_.-]', '_', name_part)[:50]
+            if not safe_base or safe_base.endswith(('.htm', '.html', '.php', '.asp', '.aspx', '')) : # if empty or common web ext
+                 safe_base = "webpage" # default if name is too generic or just an extension
+            
+        else: # For local files
+            name_part = os.path.splitext(base_name)[0]
+            # Handle Unicode characters by converting to ASCII-safe string
+            try:
+                # Try to encode as ASCII, replace non-ASCII with underscore
+                safe_name_part = name_part.encode('ascii', 'replace').decode('ascii')
+                safe_base = re.sub(r'[^a-zA-Z0-9_.-]', '_', safe_name_part)[:50]
+            except UnicodeEncodeError:
+                # If encoding fails, use a hash of the original name
+                import hashlib
+                name_hash = hashlib.md5(name_part.encode('utf-8')).hexdigest()[:8]
+                safe_base = f"file_{name_hash}"
+    except Exception as e:
+        # Fallback to timestamp-based name if anything goes wrong
+        import time
+        safe_base = f"file_{int(time.time())}"
+    
     return os.path.join(base_temp_dir, f"{prefix}_{safe_base}{suffix}")
 
 
