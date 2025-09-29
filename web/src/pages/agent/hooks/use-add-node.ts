@@ -39,6 +39,7 @@ import {
   initialRelevantValues,
   initialRetrievalValues,
   initialRewriteQuestionValues,
+  initialSearXNGValues,
   initialStringTransformValues,
   initialSwitchValues,
   initialTavilyExtractValues,
@@ -89,6 +90,7 @@ export const useInitializeOperatorParams = () => {
       [Operator.Bing]: initialBingValues,
       [Operator.GoogleScholar]: initialGoogleScholarValues,
       [Operator.DeepL]: initialDeepLValues,
+      [Operator.SearXNG]: initialSearXNGValues,
       [Operator.GitHub]: initialGithubValues,
       [Operator.BaiduFanyi]: initialBaiduFanyiValues,
       [Operator.QWeather]: initialQWeatherValues,
@@ -334,6 +336,7 @@ export function useAddNode(reactFlowInstance?: ReactFlowInstance<any, any>) {
             x: 0,
             y: 0,
           },
+          draggable: type === Operator.Placeholder ? false : undefined,
           data: {
             label: `${type}`,
             name: generateNodeNamesWithIncreasingIndex(
